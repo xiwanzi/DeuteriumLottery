@@ -38,7 +38,7 @@ mvn clean package
 构建完成后使用：
 
 ```text
-target/lottery-1.1.0-SNAPSHOT.jar
+target/lottery-1.1.2-SNAPSHOT.jar
 ```
 
 不要使用 `original-*.jar`，它不包含运行所需的 shaded 依赖。
@@ -81,9 +81,11 @@ target/lottery-1.1.0-SNAPSHOT.jar
 | `/lottery draw <daily\|weekly\|holiday>` | 手动开奖 | `lottery.admin.draw` |
 | `/lottery preview <daily\|weekly\|holiday>` | 预览当前期状态 | `lottery.admin.preview` |
 | `/lottery period <daily\|weekly\|holiday>` | 查看当前期信息 | `lottery.admin.period` |
-| `/lottery history [daily\|weekly\|holiday]` | 查看上一期开奖结果 | 当前无权限检查 |
+| `/lottery history [daily\|weekly\|holiday] [期数]` | 查看指定期数开奖结果 | `lottery.admin.history` |
+| `/lottery refund <玩家> <daily\|weekly\|holiday> [期数] [redstone\|obsidian\|gold\|all]` | 管理员退回指定投注 | `lottery.admin.refund` |
 | `/lottery ledger <玩家>` | 查看玩家最近彩票流水 | `lottery.admin.ledger` |
 | `/lottery pool add <daily\|weekly\|holiday> <金额>` | 给当前期增加额外奖池 | `lottery.admin.pool` |
+| `/lottery reset <daily\|weekly\|holiday> confirm` | 高危重置指定彩票记录 | `lottery.admin.reset` |
 | `/lottery mailtest <玩家>` | 发送测试邮件 | `lottery.admin.mailtest` |
 | `/lottery help` | 查看管理员帮助 | `lottery.admin.help` |
 
@@ -92,7 +94,7 @@ target/lottery-1.1.0-SNAPSHOT.jar
 核心经济账户：
 
 ```yaml
-config-version: 2
+config-version: 4
 
 settings:
   system-account: "lottery"
@@ -188,6 +190,9 @@ plugins/lottery/lottery.db
 
 - `periods`：期数和下次开奖时间
 - `tickets`：购票记录
+- `ticket_refunds`：每日/每周管理员退款记录
+- `holiday_bets`：节日公益活动投注记录
+- `holiday_refunds`：节日公益活动退款记录
 - `awards`：中奖记录
 - `ledger`：彩票流水
 - `emails`：玩家邮箱绑定
