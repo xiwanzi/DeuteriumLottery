@@ -21,23 +21,31 @@ public final class ConfigMigrator {
         try {
             List<String> lines = Files.readAllLines(configPath, StandardCharsets.UTF_8);
             StringBuilder additions = new StringBuilder();
+            boolean editedLines = false;
             if (!hasTopLevel(lines, "config-version")) {
                 additions.append(System.lineSeparator())
-                        .append("# Added by lottery 1.1.0 config migration.").append(System.lineSeparator())
+                        .append("# Added by lottery 1.1.x config migration.").append(System.lineSeparator())
                         .append("# This version marker is appended to avoid rewriting existing production config.").append(System.lineSeparator())
-                        .append("config-version: 2").append(System.lineSeparator());
+                        .append("config-version: 3").append(System.lineSeparator());
+            } else {
+                editedLines = bumpConfigVersion(lines);
             }
             if (!hasTopLevel(lines, "holiday")) {
                 additions.append(System.lineSeparator()).append(HOLIDAY_CONFIG);
+            } else if (!hasPath(lines, "holiday", "refund")) {
+                editedLines = insertHolidayRefund(lines) || editedLines;
             }
             if (!hasPath(lines, "menu", "holiday") && !hasTopLevel(lines, "holiday-menu")) {
                 additions.append(System.lineSeparator()).append(HOLIDAY_MENU_CONFIG);
             }
-            if (additions.length() == 0) {
+            if (additions.length() == 0 && !editedLines) {
                 return false;
             }
+            if (editedLines) {
+                Files.write(configPath, lines, StandardCharsets.UTF_8);
+            }
             Files.writeString(configPath, additions.toString(), StandardCharsets.UTF_8, StandardOpenOption.APPEND);
-            plugin.getLogger().info("Config migration appended lottery 1.1.0 settings without rewriting existing config.");
+            plugin.getLogger().info("Config migration applied lottery 1.1.x settings without replacing existing production config.");
             return true;
         } catch (IOException ex) {
             plugin.getLogger().warning("Failed to migrate config.yml: " + ex.getMessage());
@@ -49,6 +57,19 @@ public final class ConfigMigrator {
         String prefix = key + ":";
         for (String line : lines) {
             if (line.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean bumpConfigVersion(List<String> lines) {
+        for (int i = 0; i < lines.size(); i++) {
+            if (lines.get(i).startsWith("config-version:")) {
+                if (lines.get(i).equals("config-version: 3")) {
+                    return false;
+                }
+                lines.set(i, "config-version: 3");
                 return true;
             }
         }
@@ -74,8 +95,38 @@ public final class ConfigMigrator {
         return false;
     }
 
+    private static boolean insertHolidayRefund(List<String> lines) {
+        boolean inHoliday = false;
+        int insertAt = -1;
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i);
+            if (line.startsWith("holiday:")) {
+                inHoliday = true;
+                insertAt = i + 1;
+                continue;
+            }
+            if (inHoliday && !line.isBlank() && !line.startsWith(" ")) {
+                break;
+            }
+            if (inHoliday && line.startsWith("  schedules:")) {
+                insertAt = i;
+                break;
+            }
+        }
+        if (insertAt < 0) {
+            return false;
+        }
+        lines.add(insertAt, "");
+        lines.add(insertAt + 1, "  refund:");
+        lines.add(insertAt + 2, "    # true = players can refund current holiday bets before the draw lock time.");
+        lines.add(insertAt + 3, "    enabled: true");
+        lines.add(insertAt + 4, "    # Player self-refund is locked this many minutes before draw. Admin refund ignores this.");
+        lines.add(insertAt + 5, "    lock-before-minutes: 60");
+        return true;
+    }
+
     private static final String HOLIDAY_CONFIG = """
-# Added by lottery 1.1.0. The event is disabled by default and does not modify daily/weekly data.
+# Added by lottery 1.1.x. The event is disabled by default and does not modify daily/weekly data.
 holiday:
   display-name: "&6节日公益活动"
   enabled: false
@@ -87,6 +138,10 @@ holiday:
   min-total-pool: 1500
   reward-pool-percent: 90
   house-pool-percent: 10
+
+  refund:
+    enabled: true
+    lock-before-minutes: 60
 
   schedules:
     fixed-daily:

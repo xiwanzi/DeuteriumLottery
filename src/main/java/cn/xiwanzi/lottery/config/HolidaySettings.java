@@ -14,18 +14,23 @@ public final class HolidaySettings {
     private final double rewardPoolPercent;
     private final double housePoolPercent;
     private final int maxBetsPerPlayer;
+    private final boolean refundEnabled;
+    private final int refundLockBeforeMinutes;
     private final ScheduleSettings schedule;
     private final List<Double> betAmounts;
     private final Map<HolidayOutcome, OutcomeSettings> outcomes = new EnumMap<>(HolidayOutcome.class);
 
     public HolidaySettings(boolean enabled, String displayName, double minTotalPool, double rewardPoolPercent,
-                           double housePoolPercent, int maxBetsPerPlayer, ScheduleSettings schedule, List<Double> betAmounts) {
+                           double housePoolPercent, int maxBetsPerPlayer, boolean refundEnabled,
+                           int refundLockBeforeMinutes, ScheduleSettings schedule, List<Double> betAmounts) {
         this.enabled = enabled;
         this.displayName = displayName;
         this.minTotalPool = minTotalPool;
         this.rewardPoolPercent = rewardPoolPercent;
         this.housePoolPercent = housePoolPercent;
         this.maxBetsPerPlayer = maxBetsPerPlayer;
+        this.refundEnabled = refundEnabled;
+        this.refundLockBeforeMinutes = refundLockBeforeMinutes;
         this.schedule = schedule;
         this.betAmounts = betAmounts;
     }
@@ -52,6 +57,14 @@ public final class HolidaySettings {
 
     public int maxBetsPerPlayer() {
         return maxBetsPerPlayer;
+    }
+
+    public boolean refundEnabled() {
+        return refundEnabled;
+    }
+
+    public int refundLockBeforeMinutes() {
+        return refundLockBeforeMinutes;
     }
 
     public ScheduleSettings schedule() {

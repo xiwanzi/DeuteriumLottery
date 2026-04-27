@@ -75,6 +75,9 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
         if (args[0].equalsIgnoreCase("history")) {
             return history(sender, args);
         }
+        if (args[0].equalsIgnoreCase("refund")) {
+            return refund(sender, args);
+        }
         if (args[0].equalsIgnoreCase("ledger")) {
             return ledger(sender, args);
         }
@@ -93,7 +96,7 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
         if (args[0].equalsIgnoreCase("reset")) {
             return reset(sender, args);
         }
-        sender.sendMessage("/" + label + " [open|reload|info|bind|unbind|edit|email|draw|reset]");
+        sender.sendMessage("/" + label + " [open|reload|info|bind|unbind|edit|email|draw|refund|reset]");
         return true;
     }
 
@@ -176,6 +179,10 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
     }
 
     private boolean history(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("lottery.admin.history")) {
+            sender.sendMessage(configManager.message("no-permission"));
+            return true;
+        }
         LotteryType type = LotteryType.from(args.length >= 2 ? args[1] : "daily").orElse(LotteryType.DAILY);
         Optional<PeriodState> period = storage.getPeriod(type);
         if (period.isEmpty() || period.get().periodId() <= 1) {
@@ -183,6 +190,18 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         long historyPeriod = period.get().periodId() - 1;
+        if (args.length >= 3) {
+            try {
+                historyPeriod = Long.parseLong(args[2]);
+            } catch (NumberFormatException ex) {
+                sender.sendMessage("/lottery history [daily|weekly|holiday] [period]");
+                return true;
+            }
+        }
+        if (historyPeriod <= 0 || historyPeriod >= period.get().periodId()) {
+            sender.sendMessage(configManager.message("invalid-period"));
+            return true;
+        }
         if (type == LotteryType.HOLIDAY) {
             List<LedgerEntry> entries = storage.periodLedger(type, historyPeriod);
             Optional<String> outcome = entries.stream()
@@ -191,6 +210,10 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
                     .findFirst();
             List<LedgerEntry> payouts = entries.stream()
                     .filter(entry -> entry.action().equals("HOLIDAY_PAYOUT"))
+                    .toList();
+            List<LedgerEntry> refunds = entries.stream()
+                    .filter(entry -> entry.action().equals("HOLIDAY_REFUND") || entry.action().equals("HOLIDAY_ADMIN_REFUND")
+                            || entry.action().equals("REFUND"))
                     .toList();
             sender.sendMessage(configManager.prefixed("&e" + configManager.lottery(type).displayName()
                     + " &7period &f" + historyPeriod + " &7result"));
@@ -209,6 +232,10 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(configManager.prefixed("&7Winner: &f" + entry.playerName()
                         + " &7Amount: &f" + Text.money(entry.amount())));
             }
+            for (LedgerEntry entry : refunds) {
+                sender.sendMessage(configManager.prefixed("&7Refund: &f" + entry.playerName()
+                        + " &7Amount: &f" + Text.money(entry.amount()) + " &8" + entry.note()));
+            }
             return true;
         }
         List<Award> awards = storage.awards(type, historyPeriod);
@@ -221,6 +248,71 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
         for (Award award : awards) {
             sender.sendMessage(configManager.prefixed("&7" + award.tier().displayName() + ": &f" + award.playerName()
                     + " &7Amount: &f" + Text.money(award.amount())));
+        }
+        return true;
+    }
+
+    @SuppressWarnings("deprecation")
+    private boolean refund(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("lottery.admin.refund")) {
+            sender.sendMessage(configManager.message("no-permission"));
+            return true;
+        }
+        if (args.length < 3) {
+            sender.sendMessage("/lottery refund <player> <holiday> [period] [redstone|obsidian|gold|all]");
+            return true;
+        }
+        OfflinePlayer target = Bukkit.getOfflinePlayer(args[1]);
+        if (!target.hasPlayedBefore() && !target.isOnline()) {
+            sender.sendMessage(configManager.message("player-not-found"));
+            return true;
+        }
+        Optional<LotteryType> type = LotteryType.from(args[2]);
+        if (type.isEmpty()) {
+            sender.sendMessage(configManager.message("invalid-type"));
+            return true;
+        }
+        if (type.get() != LotteryType.HOLIDAY) {
+            sender.sendMessage(configManager.message("refund-holiday-only"));
+            return true;
+        }
+        Optional<PeriodState> current = storage.getPeriod(LotteryType.HOLIDAY);
+        if (current.isEmpty()) {
+            sender.sendMessage(configManager.message("invalid-period"));
+            return true;
+        }
+        long periodId = current.get().periodId();
+        if (args.length >= 4) {
+            try {
+                periodId = Long.parseLong(args[3]);
+            } catch (NumberFormatException ex) {
+                sender.sendMessage("/lottery refund <player> holiday [period] [redstone|obsidian|gold|all]");
+                return true;
+            }
+        }
+        if (periodId <= 0 || periodId > current.get().periodId()) {
+            sender.sendMessage(configManager.message("invalid-period"));
+            return true;
+        }
+        Optional<HolidayOutcome> outcome = Optional.empty();
+        if (args.length >= 5 && !args[4].equalsIgnoreCase("all")) {
+            outcome = HolidayOutcome.from(args[4]);
+            if (outcome.isEmpty()) {
+                sender.sendMessage("/lottery refund <player> holiday [period] [redstone|obsidian|gold|all]");
+                return true;
+            }
+        }
+        LotteryService.RefundResult result = lotteryService.refundHolidayAdmin(target, periodId, outcome, sender.getName());
+        if (result.success()) {
+            sender.sendMessage(configManager.message("admin-refund-success")
+                    .replace("%player%", target.getName() == null ? args[1] : target.getName())
+                    .replace("%period%", Long.toString(periodId))
+                    .replace("%count%", Integer.toString(result.count()))
+                    .replace("%amount%", Text.money(result.amount())));
+        } else if (result.empty()) {
+            sender.sendMessage(configManager.message("admin-refund-empty"));
+        } else {
+            sender.sendMessage(configManager.message("holiday-refund-failed"));
         }
         return true;
     }
@@ -525,7 +617,7 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             return filter(List.of("open", "reload", "info", "bind", "unbind", "edit", "email", "draw",
-                    "preview", "history", "ledger", "period", "mailtest", "help", "pool", "reset"), args[0]);
+                    "preview", "history", "refund", "ledger", "period", "mailtest", "help", "pool", "reset"), args[0]);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("email")) {
             return filter(List.of("info", "bind", "unbind", "edit"), args[1]);
@@ -543,6 +635,15 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
                 || args[0].equalsIgnoreCase("period")
                 || args[0].equalsIgnoreCase("history"))) {
             return filter(lotteryTypeKeys(), args[1]);
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("refund")) {
+            return playerNames(args[1]);
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("refund")) {
+            return filter(List.of("holiday"), args[2]);
+        }
+        if (args.length == 5 && args[0].equalsIgnoreCase("refund") && args[2].equalsIgnoreCase("holiday")) {
+            return filter(List.of("all", "redstone", "obsidian", "gold"), args[4]);
         }
         if (args.length == 2 && (args[0].equalsIgnoreCase("ledger")
                 || args[0].equalsIgnoreCase("mailtest"))) {

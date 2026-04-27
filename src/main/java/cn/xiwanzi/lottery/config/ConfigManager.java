@@ -142,6 +142,8 @@ public final class ConfigManager {
                 housePoolPercent,
                 Math.max(1, config.getInt(path + ".max-bets-per-player",
                         config.getInt(path + ".max-purchases-per-player", 5))),
+                config.getBoolean(path + ".refund.enabled", true),
+                Math.max(0, config.getInt(path + ".refund.lock-before-minutes", 60)),
                 loadSchedule(config, path + ".schedules", LotteryType.HOLIDAY),
                 betAmounts
         );
@@ -339,6 +341,16 @@ public final class ConfigManager {
             case "reset-success" -> "&a已重置 &e%type% &a到第 1 期，清空显示奖池: &e%amount%";
             case "holiday-disabled" -> "&c节日公益活动当前未开放。";
             case "holiday-bet-success" -> "&a已参与 &e%outcome% &a分池，额度 &e%amount% &7(%current%/%max%)";
+            case "holiday-pool-locked" -> "&cYou already selected another holiday pool this period. Refund before lock time to choose again.";
+            case "holiday-refund-success" -> "&aRefunded &e%count% &aholiday bet(s), amount &e%amount%&a.";
+            case "holiday-refund-empty" -> "&7You have no refundable holiday bets.";
+            case "holiday-refund-locked" -> "&cHoliday refund is locked for this period.";
+            case "holiday-refund-disabled" -> "&cHoliday refund is disabled.";
+            case "holiday-refund-failed" -> "&cHoliday refund failed. Please contact an administrator.";
+            case "refund-holiday-only" -> "&cOnly holiday public event bets can be refunded.";
+            case "admin-refund-success" -> "&aRefunded &e%player% &aperiod &e%period% &aholiday bet(s): &e%count% &7/ &e%amount%";
+            case "admin-refund-empty" -> "&7No refundable holiday bets were found.";
+            case "invalid-period" -> "&cInvalid period number.";
             default -> key;
         };
     }
@@ -424,6 +436,8 @@ public final class ConfigManager {
             help.add(insertAt + 2, "&e/lottery period <daily|weekly|holiday> &7- 查看当前期状态");
             help.add(insertAt + 3, "&e/lottery pool add <daily|weekly|holiday> <金额> &7- 给当前期增加额外奖池");
             help.add(insertAt + 4, "&e/lottery history [daily|weekly|holiday] &7- 查看上一期开奖结果");
+            help.add(insertAt + 5, "&e/lottery refund <player> holiday [period] [redstone|obsidian|gold|all] &7- Refund holiday bets");
+            help.add(insertAt + 6, "&e/lottery history [daily|weekly|holiday] [period] &7- View draw history");
         }
         return Text.color(help);
     }

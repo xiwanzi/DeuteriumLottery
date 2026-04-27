@@ -28,9 +28,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 public final class MenuManager implements Listener {
+    private static final int HOLIDAY_REFUND_SLOT = 22;
+
     private final JavaPlugin plugin;
     private final ConfigManager configManager;
     private final StorageService storage;
@@ -169,6 +172,8 @@ public final class MenuManager implements Listener {
         int[] slots = {9, 10, 11, 12, 13, 14, 15, 16, 17};
         int index = 0;
         int current = lotteryService.currentPurchases(player, LotteryType.HOLIDAY);
+        Optional<HolidayOutcome> selectedOutcome = lotteryService.holidaySelectedOutcome(player);
+        boolean refundLocked = lotteryService.holidayRefundLocked();
         for (HolidayOutcome outcome : HolidayOutcome.values()) {
             HolidaySettings.OutcomeSettings outcomeSettings = settings.outcome(outcome);
             for (double amount : settings.betAmounts()) {
@@ -176,6 +181,17 @@ public final class MenuManager implements Listener {
                     return;
                 }
                 int slot = slots[index++];
+                if (selectedOutcome.isPresent() && selectedOutcome.get() != outcome) {
+                    List<String> lockedLore = List.of(
+                            "&8&m------------------------",
+                            "&7You already selected: &f" + settings.outcome(selectedOutcome.get()).displayName(),
+                            "&7Refund before lock time to choose another pool.",
+                            "&8&m------------------------",
+                            "&cLocked for this period"
+                    );
+                    inventory.setItem(slot, namedItem(Material.BARRIER, "&cLocked - " + outcomeSettings.displayName(), Text.color(lockedLore)));
+                    continue;
+                }
                 holder.choice(slot, outcome, amount);
                 double outcomePool = lotteryService.holidayOutcomePool(outcome);
                 double estimatedPool = lotteryService.currentPool(LotteryType.HOLIDAY);
@@ -195,6 +211,17 @@ public final class MenuManager implements Listener {
                 inventory.setItem(slot, namedItem(outcomeSettings.material(), outcomeSettings.displayName()
                         + " &7- &6" + Text.money(amount), Text.color(lore)));
             }
+        }
+        if (current > 0) {
+            List<String> refundLore = new ArrayList<>();
+            refundLore.add("&8&m------------------------");
+            refundLore.add("&7Current bets: &f" + current + "/" + settings.maxBetsPerPlayer());
+            selectedOutcome.ifPresent(outcome -> refundLore.add("&7Selected pool: &f" + settings.outcome(outcome).displayName()));
+            refundLore.add("&7Refund lock: &f" + settings.refundLockBeforeMinutes() + " minutes before draw");
+            refundLore.add("&8&m------------------------");
+            refundLore.add(refundLocked ? "&cRefund locked for this period" : "&eClick to refund current holiday bets");
+            inventory.setItem(HOLIDAY_REFUND_SLOT, namedItem(refundLocked ? Material.BARRIER : Material.HOPPER,
+                    refundLocked ? "&cRefund Locked" : "&aRefund Holiday Bets", Text.color(refundLore)));
         }
     }
 
@@ -293,6 +320,24 @@ public final class MenuManager implements Listener {
         if (event.getClickedInventory() == null || event.getClickedInventory() != inventory) {
             return;
         }
+        if (event.getSlot() == HOLIDAY_REFUND_SLOT) {
+            LotteryService.RefundResult refund = lotteryService.refundHolidaySelf(player);
+            if (refund.success()) {
+                player.sendMessage(configManager.message("holiday-refund-success")
+                        .replace("%count%", Integer.toString(refund.count()))
+                        .replace("%amount%", Text.money(refund.amount())));
+            } else if (refund.empty()) {
+                player.sendMessage(configManager.message("holiday-refund-empty"));
+            } else if (refund.locked()) {
+                player.sendMessage(configManager.message("holiday-refund-locked"));
+            } else if (refund.disabled()) {
+                player.sendMessage(configManager.message("holiday-refund-disabled"));
+            } else {
+                player.sendMessage(configManager.message("holiday-refund-failed"));
+            }
+            refreshHoliday(inventory, holder, player);
+            return;
+        }
         HolidayMenuHolder.Choice choice = holder.choice(event.getSlot());
         if (choice == null) {
             return;
@@ -316,6 +361,8 @@ public final class MenuManager implements Listener {
             player.sendMessage(configManager.message("purchase-limit"));
         } else if (result.noMoney()) {
             player.sendMessage(configManager.message("not-enough-money"));
+        } else if (result.lockedPool()) {
+            player.sendMessage(configManager.message("holiday-pool-locked"));
         } else {
             player.sendMessage(configManager.message("economy-unavailable"));
         }

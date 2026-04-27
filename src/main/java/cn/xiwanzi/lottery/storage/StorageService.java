@@ -71,6 +71,19 @@ public final class StorageService {
                         )
                         """);
                 statement.executeUpdate("""
+                        CREATE TABLE IF NOT EXISTS holiday_refunds (
+                          bet_id INTEGER PRIMARY KEY,
+                          period_id INTEGER NOT NULL,
+                          player_uuid TEXT NOT NULL,
+                          player_name TEXT NOT NULL,
+                          outcome TEXT NOT NULL,
+                          amount REAL NOT NULL,
+                          admin INTEGER NOT NULL,
+                          operator_name TEXT NOT NULL,
+                          created_at INTEGER NOT NULL
+                        )
+                        """);
+                statement.executeUpdate("""
                         CREATE TABLE IF NOT EXISTS awards (
                           type TEXT NOT NULL,
                           period_id INTEGER NOT NULL,
@@ -107,6 +120,8 @@ public final class StorageService {
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_tickets_player ON tickets(type, period_id, player_uuid)");
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_holiday_bets_period ON holiday_bets(period_id)");
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_holiday_bets_player ON holiday_bets(period_id, player_uuid)");
+                statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_holiday_refunds_period ON holiday_refunds(period_id)");
+                statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_holiday_refunds_player ON holiday_refunds(period_id, player_uuid)");
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_awards_period ON awards(type, period_id)");
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_ledger_period_action ON ledger(type, period_id, action)");
             }
@@ -202,6 +217,7 @@ public final class StorageService {
             connection.setAutoCommit(false);
             try (PreparedStatement deleteTickets = connection.prepareStatement("DELETE FROM tickets WHERE type = ?");
                  PreparedStatement deleteHolidayBets = connection.prepareStatement("DELETE FROM holiday_bets");
+                 PreparedStatement deleteHolidayRefunds = connection.prepareStatement("DELETE FROM holiday_refunds");
                  PreparedStatement deleteAwards = connection.prepareStatement("DELETE FROM awards WHERE type = ?");
                  PreparedStatement deleteLedger = connection.prepareStatement("DELETE FROM ledger WHERE type = ?");
                  PreparedStatement deletePeriod = connection.prepareStatement("DELETE FROM periods WHERE type = ?");
@@ -214,6 +230,7 @@ public final class StorageService {
 
                 if (type == LotteryType.HOLIDAY) {
                     deleteHolidayBets.executeUpdate();
+                    deleteHolidayRefunds.executeUpdate();
                 }
 
                 deleteAwards.setString(1, type.key());
@@ -382,7 +399,7 @@ public final class StorageService {
 
     public synchronized int countHolidayPlayerBets(long periodId, UUID playerUuid) {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT COUNT(*) FROM holiday_bets WHERE period_id = ? AND player_uuid = ?")) {
+                "SELECT COUNT(*) FROM holiday_bets WHERE period_id = ? AND player_uuid = ? AND " + activeHolidayBetSql())) {
             statement.setLong(1, periodId);
             statement.setString(2, playerUuid.toString());
             try (ResultSet result = statement.executeQuery()) {
@@ -395,7 +412,7 @@ public final class StorageService {
 
     public synchronized int countHolidayBets(long periodId) {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT COUNT(*) FROM holiday_bets WHERE period_id = ?")) {
+                "SELECT COUNT(*) FROM holiday_bets WHERE period_id = ? AND " + activeHolidayBetSql())) {
             statement.setLong(1, periodId);
             try (ResultSet result = statement.executeQuery()) {
                 return result.next() ? result.getInt(1) : 0;
@@ -444,7 +461,7 @@ public final class StorageService {
 
     public synchronized double holidayBetPool(long periodId) {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT COALESCE(SUM(amount), 0) FROM holiday_bets WHERE period_id = ?")) {
+                "SELECT COALESCE(SUM(amount), 0) FROM holiday_bets WHERE period_id = ? AND " + activeHolidayBetSql())) {
             statement.setLong(1, periodId);
             try (ResultSet result = statement.executeQuery()) {
                 return result.next() ? result.getDouble(1) : 0;
@@ -456,7 +473,8 @@ public final class StorageService {
 
     public synchronized double holidayBetPool(long periodId, HolidayOutcome outcome) {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT COALESCE(SUM(amount), 0) FROM holiday_bets WHERE period_id = ? AND outcome = ?")) {
+                "SELECT COALESCE(SUM(amount), 0) FROM holiday_bets WHERE period_id = ? AND outcome = ? AND "
+                        + activeHolidayBetSql())) {
             statement.setLong(1, periodId);
             statement.setString(2, outcome.key());
             try (ResultSet result = statement.executeQuery()) {
@@ -470,7 +488,8 @@ public final class StorageService {
     public synchronized List<HolidayBet> holidayBets(long periodId) {
         List<HolidayBet> bets = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT id, outcome, player_uuid, player_name, amount FROM holiday_bets WHERE period_id = ? ORDER BY id ASC")) {
+                "SELECT id, outcome, player_uuid, player_name, amount FROM holiday_bets WHERE period_id = ? AND "
+                        + activeHolidayBetSql() + " ORDER BY id ASC")) {
             statement.setLong(1, periodId);
             try (ResultSet result = statement.executeQuery()) {
                 while (result.next()) {
@@ -492,6 +511,118 @@ public final class StorageService {
             throw new IllegalStateException("Failed to read holiday bets.", ex);
         }
         return bets;
+    }
+
+    public synchronized List<HolidayBet> holidayBetsForPlayer(long periodId, UUID playerUuid) {
+        List<HolidayBet> bets = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT id, outcome, player_uuid, player_name, amount FROM holiday_bets WHERE period_id = ? AND player_uuid = ? AND "
+                        + activeHolidayBetSql() + " ORDER BY id ASC")) {
+            statement.setLong(1, periodId);
+            statement.setString(2, playerUuid.toString());
+            try (ResultSet result = statement.executeQuery()) {
+                while (result.next()) {
+                    Optional<HolidayOutcome> outcome = HolidayOutcome.from(result.getString("outcome"));
+                    if (outcome.isEmpty()) {
+                        continue;
+                    }
+                    bets.add(new HolidayBet(
+                            result.getLong("id"),
+                            periodId,
+                            outcome.get(),
+                            UUID.fromString(result.getString("player_uuid")),
+                            result.getString("player_name"),
+                            result.getDouble("amount")
+                    ));
+                }
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Failed to read holiday player bets.", ex);
+        }
+        return bets;
+    }
+
+    public synchronized List<HolidayBet> holidayBetsForPlayerOutcome(long periodId, UUID playerUuid, HolidayOutcome outcome) {
+        List<HolidayBet> bets = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT id, outcome, player_uuid, player_name, amount FROM holiday_bets WHERE period_id = ? AND player_uuid = ? AND outcome = ? AND "
+                        + activeHolidayBetSql() + " ORDER BY id ASC")) {
+            statement.setLong(1, periodId);
+            statement.setString(2, playerUuid.toString());
+            statement.setString(3, outcome.key());
+            try (ResultSet result = statement.executeQuery()) {
+                while (result.next()) {
+                    bets.add(new HolidayBet(
+                            result.getLong("id"),
+                            periodId,
+                            outcome,
+                            UUID.fromString(result.getString("player_uuid")),
+                            result.getString("player_name"),
+                            result.getDouble("amount")
+                    ));
+                }
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Failed to read holiday player outcome bets.", ex);
+        }
+        return bets;
+    }
+
+    public synchronized void recordHolidayRefund(HolidayBet bet, boolean admin, String operatorName) {
+        try {
+            connection.setAutoCommit(false);
+            try (PreparedStatement refund = connection.prepareStatement("""
+                    INSERT OR IGNORE INTO holiday_refunds(bet_id, period_id, player_uuid, player_name, outcome, amount, admin, operator_name, created_at)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """);
+                 PreparedStatement ledger = connection.prepareStatement(
+                         "INSERT INTO ledger(type, period_id, action, player_uuid, player_name, amount, created_at, note) VALUES(?, ?, ?, ?, ?, ?, ?, ?)")) {
+                long now = System.currentTimeMillis();
+                refund.setLong(1, bet.id());
+                refund.setLong(2, bet.periodId());
+                refund.setString(3, bet.playerUuid().toString());
+                refund.setString(4, bet.playerName());
+                refund.setString(5, bet.outcome().key());
+                refund.setDouble(6, bet.amount());
+                refund.setInt(7, admin ? 1 : 0);
+                refund.setString(8, operatorName == null ? "" : operatorName);
+                refund.setLong(9, now);
+                refund.executeUpdate();
+
+                ledger.setString(1, LotteryType.HOLIDAY.key());
+                ledger.setLong(2, bet.periodId());
+                ledger.setString(3, admin ? "HOLIDAY_ADMIN_REFUND" : "HOLIDAY_REFUND");
+                ledger.setString(4, bet.playerUuid().toString());
+                ledger.setString(5, bet.playerName());
+                ledger.setDouble(6, bet.amount());
+                ledger.setLong(7, now);
+                ledger.setString(8, "holiday-bet-" + bet.id() + ":" + bet.outcome().key());
+                ledger.executeUpdate();
+            }
+            connection.commit();
+        } catch (SQLException ex) {
+            try {
+                connection.rollback();
+            } catch (SQLException rollbackEx) {
+                plugin.getLogger().warning("Failed to roll back holiday refund transaction: " + rollbackEx.getMessage());
+            }
+            throw new IllegalStateException("Failed to record holiday refund.", ex);
+        } finally {
+            try {
+                connection.setAutoCommit(true);
+            } catch (SQLException ex) {
+                plugin.getLogger().warning("Failed to restore auto commit: " + ex.getMessage());
+            }
+        }
+    }
+
+    private String activeHolidayBetSql() {
+        return "NOT EXISTS (SELECT 1 FROM holiday_refunds hr WHERE hr.bet_id = holiday_bets.id) "
+                + "AND NOT EXISTS (SELECT 1 FROM ledger l WHERE l.type = 'holiday' "
+                + "AND l.period_id = holiday_bets.period_id "
+                + "AND l.player_uuid = holiday_bets.player_uuid "
+                + "AND l.note = ('holiday-bet-' || holiday_bets.id) "
+                + "AND l.action IN ('REFUND', 'HOLIDAY_REFUND', 'HOLIDAY_ADMIN_REFUND'))";
     }
 
     public synchronized void recordLedger(LotteryType type, long periodId, String action, UUID playerUuid, String playerName, double amount, String note) {

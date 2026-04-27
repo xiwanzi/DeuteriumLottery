@@ -116,7 +116,11 @@ public final class LotteryService {
             return PurchaseResult.invalidResult();
         }
         PeriodState period = storage.getOrCreatePeriod(LotteryType.HOLIDAY, configManager.nextDrawAt(LotteryType.HOLIDAY, System.currentTimeMillis()));
-        int current = storage.countHolidayPlayerBets(period.periodId(), player.getUniqueId());
+        List<HolidayBet> playerBets = storage.holidayBetsForPlayer(period.periodId(), player.getUniqueId());
+        int current = playerBets.size();
+        if (!playerBets.isEmpty() && playerBets.stream().anyMatch(bet -> bet.outcome() != outcome)) {
+            return PurchaseResult.lockedPool(current, settings.maxBetsPerPlayer());
+        }
         if (current >= settings.maxBetsPerPlayer()) {
             return PurchaseResult.limit(current, settings.maxBetsPerPlayer());
         }
@@ -136,6 +140,74 @@ public final class LotteryService {
             throw ex;
         }
         return PurchaseResult.success(current + 1, settings.maxBetsPerPlayer());
+    }
+
+    public synchronized Optional<HolidayOutcome> holidaySelectedOutcome(Player player) {
+        Optional<PeriodState> period = storage.getPeriod(LotteryType.HOLIDAY);
+        if (period.isEmpty()) {
+            return Optional.empty();
+        }
+        return storage.holidayBetsForPlayer(period.get().periodId(), player.getUniqueId()).stream()
+                .map(HolidayBet::outcome)
+                .findFirst();
+    }
+
+    public synchronized boolean holidayRefundLocked() {
+        HolidaySettings settings = configManager.holiday();
+        Optional<PeriodState> period = storage.getPeriod(LotteryType.HOLIDAY);
+        if (period.isEmpty() || period.get().nextDrawAt() <= 0) {
+            return false;
+        }
+        long lockAt = period.get().nextDrawAt() - settings.refundLockBeforeMinutes() * 60_000L;
+        return System.currentTimeMillis() >= lockAt;
+    }
+
+    public synchronized RefundResult refundHolidaySelf(Player player) {
+        HolidaySettings settings = configManager.holiday();
+        if (!settings.enabled() || !settings.refundEnabled()) {
+            return RefundResult.refundDisabled();
+        }
+        if (holidayRefundLocked()) {
+            return RefundResult.refundLocked();
+        }
+        PeriodState period = storage.getOrCreatePeriod(LotteryType.HOLIDAY, configManager.nextDrawAt(LotteryType.HOLIDAY, System.currentTimeMillis()));
+        List<HolidayBet> bets = storage.holidayBetsForPlayer(period.periodId(), player.getUniqueId());
+        return refundHolidayBets(period.periodId(), bets, false, player.getName());
+    }
+
+    public synchronized RefundResult refundHolidayAdmin(OfflinePlayer target, long periodId, Optional<HolidayOutcome> outcome, String operatorName) {
+        List<HolidayBet> bets = outcome
+                .map(value -> storage.holidayBetsForPlayerOutcome(periodId, target.getUniqueId(), value))
+                .orElseGet(() -> storage.holidayBetsForPlayer(periodId, target.getUniqueId()));
+        return refundHolidayBets(periodId, bets, true, operatorName);
+    }
+
+    private RefundResult refundHolidayBets(long periodId, List<HolidayBet> bets, boolean admin, String operatorName) {
+        if (bets.isEmpty()) {
+            return RefundResult.noBets();
+        }
+        double total = 0;
+        int refunded = 0;
+        for (HolidayBet bet : bets) {
+            OfflinePlayer player = Bukkit.getOfflinePlayer(bet.playerUuid());
+            if (!economy.transferAccountToPlayer(configManager.systemAccount(), player, bet.amount())) {
+                plugin.getLogger().warning("Failed to refund holiday bet for " + bet.playerName()
+                        + " amount " + Text.money(bet.amount()));
+                storage.recordLedger(LotteryType.HOLIDAY, periodId, admin ? "HOLIDAY_ADMIN_REFUND_FAILED" : "HOLIDAY_REFUND_FAILED",
+                        bet.playerUuid(), bet.playerName(), bet.amount(), "holiday-bet-" + bet.id());
+                return RefundResult.failed(refunded, total);
+            }
+            try {
+                storage.recordHolidayRefund(bet, admin, operatorName);
+            } catch (RuntimeException ex) {
+                plugin.getLogger().warning("Holiday refund paid but database record failed for " + bet.playerName()
+                        + " amount " + Text.money(bet.amount()) + ": " + ex.getMessage());
+                return RefundResult.failed(refunded, total);
+            }
+            refunded++;
+            total += bet.amount();
+        }
+        return RefundResult.success(refunded, total);
     }
 
     public synchronized void drawNow(LotteryType type) {
@@ -710,33 +782,60 @@ public final class LotteryService {
     }
 
     public record PurchaseResult(boolean success, boolean limit, boolean noMoney, boolean economyError,
-                                 boolean disabled, boolean invalid, int current, int max) {
+                                 boolean disabled, boolean invalid, boolean lockedPool, int current, int max) {
         public static PurchaseResult success(int current, int max) {
-            return new PurchaseResult(true, false, false, false, false, false, current, max);
+            return new PurchaseResult(true, false, false, false, false, false, false, current, max);
         }
 
         public static PurchaseResult limit(int current, int max) {
-            return new PurchaseResult(false, true, false, false, false, false, current, max);
+            return new PurchaseResult(false, true, false, false, false, false, false, current, max);
         }
 
         public static PurchaseResult noMoney(int current, int max) {
-            return new PurchaseResult(false, false, true, false, false, false, current, max);
+            return new PurchaseResult(false, false, true, false, false, false, false, current, max);
         }
 
         public static PurchaseResult economyErrorResult() {
-            return new PurchaseResult(false, false, false, true, false, false, 0, 0);
+            return new PurchaseResult(false, false, false, true, false, false, false, 0, 0);
         }
 
         public static PurchaseResult economyErrorResult(int current, int max) {
-            return new PurchaseResult(false, false, false, true, false, false, current, max);
+            return new PurchaseResult(false, false, false, true, false, false, false, current, max);
         }
 
         public static PurchaseResult disabledResult() {
-            return new PurchaseResult(false, false, false, false, true, false, 0, 0);
+            return new PurchaseResult(false, false, false, false, true, false, false, 0, 0);
         }
 
         public static PurchaseResult invalidResult() {
-            return new PurchaseResult(false, false, false, false, false, true, 0, 0);
+            return new PurchaseResult(false, false, false, false, false, true, false, 0, 0);
+        }
+
+        public static PurchaseResult lockedPool(int current, int max) {
+            return new PurchaseResult(false, false, false, false, false, false, true, current, max);
+        }
+    }
+
+    public record RefundResult(boolean success, boolean empty, boolean locked, boolean disabled, boolean failed,
+                               int count, double amount) {
+        public static RefundResult success(int count, double amount) {
+            return new RefundResult(true, false, false, false, false, count, amount);
+        }
+
+        public static RefundResult noBets() {
+            return new RefundResult(false, true, false, false, false, 0, 0);
+        }
+
+        public static RefundResult refundLocked() {
+            return new RefundResult(false, false, true, false, false, 0, 0);
+        }
+
+        public static RefundResult refundDisabled() {
+            return new RefundResult(false, false, false, true, false, 0, 0);
+        }
+
+        public static RefundResult failed(int count, double amount) {
+            return new RefundResult(false, false, false, false, true, count, amount);
         }
     }
 
