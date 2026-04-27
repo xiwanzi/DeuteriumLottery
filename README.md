@@ -1,6 +1,6 @@
 # lottery
 
-`lottery` 是一个面向 Minecraft 1.20.1 Bukkit/Spigot 服务端的彩票插件，作者 `xiwanzi`。插件提供每日彩票、每周彩票、箱子式 GUI、配置热重载、Vault 经济对接、SQLite 存储、PlaceholderAPI 支持和 SMTP 中奖邮件通知。
+`lottery` 是一个面向 Minecraft 1.20.1 Bukkit/Spigot 服务端的彩票插件。插件提供每日彩票、每周彩票、箱子式 GUI、配置热重载、Vault 经济对接、SQLite 存储、PlaceholderAPI 支持和 SMTP 中奖邮件通知。
 
 本插件以轻量、可配置、可运营为目标，适合中小型服务器做公益性活动、赛事奖金池或节日玩法。
 
