@@ -7,5 +7,5 @@
 06bda486eb239d904192b49d6518d50b8c4fca4cd50ac3210ed24acda41bec29  releases/1.1.0-test/lottery-1.1.0-SNAPSHOT.jar
 06bda486eb239d904192b49d6518d50b8c4fca4cd50ac3210ed24acda41bec29  releases/1.1.0-test/lottery-1.1.0-SNAPSHOT-shaded.jar
 bf675140c2ee4f8a556823e0aa508b68ec146102d79d7b2e4453fccfdf4952f6  releases/1.1.0-test/original-lottery-1.1.0-SNAPSHOT.jar
-3082402a30f7b197290de726cd8c3df83877dfee3b0a1b5ee0383536513dc12d  releases/1.1.1-test/lottery-1.1.1-SNAPSHOT.jar
-8db483e40765b29ef6de05ba4ddaa115334600778c9ccd72d08390c9b162c6f4  releases/1.1.1-test/original-lottery-1.1.1-SNAPSHOT.jar
+958dbdbf0304326f916bd48db763726a59158f6f5e3ec8186962e4200da0f1d2  releases/1.1.1-test/lottery-1.1.1-SNAPSHOT.jar
+99896232624f4092d1fbb957e6dd6f238fcfcf7043863891893716e3ed6fef57  releases/1.1.1-test/original-lottery-1.1.1-SNAPSHOT.jar

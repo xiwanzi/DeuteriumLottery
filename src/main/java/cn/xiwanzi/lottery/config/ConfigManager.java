@@ -347,9 +347,9 @@ public final class ConfigManager {
             case "holiday-refund-locked" -> "&cHoliday refund is locked for this period.";
             case "holiday-refund-disabled" -> "&cHoliday refund is disabled.";
             case "holiday-refund-failed" -> "&cHoliday refund failed. Please contact an administrator.";
-            case "refund-holiday-only" -> "&cOnly holiday public event bets can be refunded.";
-            case "admin-refund-success" -> "&aRefunded &e%player% &aperiod &e%period% &aholiday bet(s): &e%count% &7/ &e%amount%";
-            case "admin-refund-empty" -> "&7No refundable holiday bets were found.";
+            case "refund-outcome-holiday-only" -> "&cPool names can only be used for holiday public event refunds.";
+            case "admin-refund-success" -> "&aRefunded &e%player% &a%type% period &e%period% &abet(s): &e%count% &7/ &e%amount%";
+            case "admin-refund-empty" -> "&7No refundable bets were found.";
             case "invalid-period" -> "&cInvalid period number.";
             default -> key;
         };
@@ -436,7 +436,7 @@ public final class ConfigManager {
             help.add(insertAt + 2, "&e/lottery period <daily|weekly|holiday> &7- 查看当前期状态");
             help.add(insertAt + 3, "&e/lottery pool add <daily|weekly|holiday> <金额> &7- 给当前期增加额外奖池");
             help.add(insertAt + 4, "&e/lottery history [daily|weekly|holiday] &7- 查看上一期开奖结果");
-            help.add(insertAt + 5, "&e/lottery refund <player> holiday [period] [redstone|obsidian|gold|all] &7- Refund holiday bets");
+            help.add(insertAt + 5, "&e/lottery refund <player> <daily|weekly|holiday> [period] [redstone|obsidian|gold|all] &7- Refund tickets");
             help.add(insertAt + 6, "&e/lottery history [daily|weekly|holiday] [period] &7- View draw history");
         }
         return Text.color(help);

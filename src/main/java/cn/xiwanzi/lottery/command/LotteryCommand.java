@@ -226,6 +226,10 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage(configManager.prefixed(rolled
                         ? "&7No player matched this period. Pool rolled over."
                         : "&7No payout records. This period may have been canceled."));
+                for (LedgerEntry entry : refunds) {
+                    sender.sendMessage(configManager.prefixed("&7Refund: &f" + entry.playerName()
+                            + " &7Amount: &f" + Text.money(entry.amount()) + " &8" + entry.note()));
+                }
                 return true;
             }
             for (LedgerEntry entry : payouts) {
@@ -239,15 +243,22 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         List<Award> awards = storage.awards(type, historyPeriod);
+        List<LedgerEntry> refunds = storage.periodLedger(type, historyPeriod).stream()
+                .filter(entry -> entry.action().equals("ADMIN_REFUND") || entry.action().equals("REFUND"))
+                .toList();
         sender.sendMessage(configManager.prefixed("&e" + configManager.lottery(type).displayName()
                 + " &7period &f" + historyPeriod + " &7result"));
-        if (awards.isEmpty()) {
+        if (awards.isEmpty() && refunds.isEmpty()) {
             sender.sendMessage(configManager.prefixed("&7No winner records. This period may have been canceled."));
             return true;
         }
         for (Award award : awards) {
             sender.sendMessage(configManager.prefixed("&7" + award.tier().displayName() + ": &f" + award.playerName()
                     + " &7Amount: &f" + Text.money(award.amount())));
+        }
+        for (LedgerEntry entry : refunds) {
+            sender.sendMessage(configManager.prefixed("&7Refund: &f" + entry.playerName()
+                    + " &7Amount: &f" + Text.money(entry.amount()) + " &8" + entry.note()));
         }
         return true;
     }
@@ -259,7 +270,7 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (args.length < 3) {
-            sender.sendMessage("/lottery refund <player> <holiday> [period] [redstone|obsidian|gold|all]");
+            sender.sendMessage("/lottery refund <player> <daily|weekly|holiday> [period] [redstone|obsidian|gold|all]");
             return true;
         }
         OfflinePlayer target = Bukkit.getOfflinePlayer(args[1]);
@@ -272,11 +283,7 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(configManager.message("invalid-type"));
             return true;
         }
-        if (type.get() != LotteryType.HOLIDAY) {
-            sender.sendMessage(configManager.message("refund-holiday-only"));
-            return true;
-        }
-        Optional<PeriodState> current = storage.getPeriod(LotteryType.HOLIDAY);
+        Optional<PeriodState> current = storage.getPeriod(type.get());
         if (current.isEmpty()) {
             sender.sendMessage(configManager.message("invalid-period"));
             return true;
@@ -286,7 +293,7 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             try {
                 periodId = Long.parseLong(args[3]);
             } catch (NumberFormatException ex) {
-                sender.sendMessage("/lottery refund <player> holiday [period] [redstone|obsidian|gold|all]");
+                sender.sendMessage("/lottery refund <player> <daily|weekly|holiday> [period] [redstone|obsidian|gold|all]");
                 return true;
             }
         }
@@ -296,16 +303,21 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
         }
         Optional<HolidayOutcome> outcome = Optional.empty();
         if (args.length >= 5 && !args[4].equalsIgnoreCase("all")) {
+            if (type.get() != LotteryType.HOLIDAY) {
+                sender.sendMessage(configManager.message("refund-outcome-holiday-only"));
+                return true;
+            }
             outcome = HolidayOutcome.from(args[4]);
             if (outcome.isEmpty()) {
                 sender.sendMessage("/lottery refund <player> holiday [period] [redstone|obsidian|gold|all]");
                 return true;
             }
         }
-        LotteryService.RefundResult result = lotteryService.refundHolidayAdmin(target, periodId, outcome, sender.getName());
+        LotteryService.RefundResult result = lotteryService.refundAdmin(target, type.get(), periodId, outcome, sender.getName());
         if (result.success()) {
             sender.sendMessage(configManager.message("admin-refund-success")
                     .replace("%player%", target.getName() == null ? args[1] : target.getName())
+                    .replace("%type%", configManager.lottery(type.get()).displayName())
                     .replace("%period%", Long.toString(periodId))
                     .replace("%count%", Integer.toString(result.count()))
                     .replace("%amount%", Text.money(result.amount())));
@@ -640,7 +652,7 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             return playerNames(args[1]);
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("refund")) {
-            return filter(List.of("holiday"), args[2]);
+            return filter(lotteryTypeKeys(), args[2]);
         }
         if (args.length == 5 && args[0].equalsIgnoreCase("refund") && args[2].equalsIgnoreCase("holiday")) {
             return filter(List.of("all", "redstone", "obsidian", "gold"), args[4]);

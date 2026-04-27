@@ -182,6 +182,43 @@ public final class LotteryService {
         return refundHolidayBets(periodId, bets, true, operatorName);
     }
 
+    public synchronized RefundResult refundAdmin(OfflinePlayer target, LotteryType type, long periodId,
+                                                 Optional<HolidayOutcome> outcome, String operatorName) {
+        if (type == LotteryType.HOLIDAY) {
+            return refundHolidayAdmin(target, periodId, outcome, operatorName);
+        }
+        List<Ticket> tickets = storage.ticketsForPlayer(type, periodId, target.getUniqueId());
+        return refundTicketsAdmin(type, periodId, tickets, operatorName);
+    }
+
+    private RefundResult refundTicketsAdmin(LotteryType type, long periodId, List<Ticket> tickets, String operatorName) {
+        if (tickets.isEmpty()) {
+            return RefundResult.noBets();
+        }
+        double total = 0;
+        int refunded = 0;
+        for (Ticket ticket : tickets) {
+            OfflinePlayer player = Bukkit.getOfflinePlayer(ticket.playerUuid());
+            if (!economy.transferAccountToPlayer(configManager.systemAccount(), player, ticket.price())) {
+                plugin.getLogger().warning("Failed to admin refund " + type.key() + " ticket for "
+                        + ticket.playerName() + " amount " + Text.money(ticket.price()));
+                storage.recordLedger(type, periodId, "ADMIN_REFUND_FAILED", ticket.playerUuid(), ticket.playerName(),
+                        ticket.price(), "ticket-" + ticket.id());
+                return RefundResult.failed(refunded, total);
+            }
+            try {
+                storage.recordTicketRefund(ticket, operatorName);
+            } catch (RuntimeException ex) {
+                plugin.getLogger().warning("Admin refund paid but database record failed for " + ticket.playerName()
+                        + " amount " + Text.money(ticket.price()) + ": " + ex.getMessage());
+                return RefundResult.failed(refunded, total);
+            }
+            refunded++;
+            total += ticket.price();
+        }
+        return RefundResult.success(refunded, total);
+    }
+
     private RefundResult refundHolidayBets(long periodId, List<HolidayBet> bets, boolean admin, String operatorName) {
         if (bets.isEmpty()) {
             return RefundResult.noBets();
