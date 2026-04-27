@@ -441,6 +441,33 @@ public final class StorageService {
         }
     }
 
+    public synchronized int countHolidayBets(long periodId, HolidayOutcome outcome) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COUNT(*) FROM holiday_bets WHERE period_id = ? AND outcome = ? AND " + activeHolidayBetSql())) {
+            statement.setLong(1, periodId);
+            statement.setString(2, outcome.key());
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? result.getInt(1) : 0;
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Failed to count holiday outcome bets.", ex);
+        }
+    }
+
+    public synchronized int countHolidayPlayers(long periodId, HolidayOutcome outcome) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COUNT(DISTINCT player_uuid) FROM holiday_bets WHERE period_id = ? AND outcome = ? AND "
+                        + activeHolidayBetSql())) {
+            statement.setLong(1, periodId);
+            statement.setString(2, outcome.key());
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? result.getInt(1) : 0;
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Failed to count holiday outcome players.", ex);
+        }
+    }
+
     public synchronized List<Ticket> tickets(LotteryType type, long periodId) {
         List<Ticket> tickets = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(

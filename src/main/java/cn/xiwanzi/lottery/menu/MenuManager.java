@@ -140,7 +140,9 @@ public final class MenuManager implements Listener {
         lore.add("&8&m------------------------");
         lore.add("&7类型: &f" + settings.displayName());
         lore.add("&7状态: " + (settings.enabled() ? "&a开放中" : "&c活动未开放"));
-        lore.add("&7开奖倒计时: &e" + Text.countdown(lotteryService.nextDrawAt(LotteryType.HOLIDAY)));
+        lore.add(settings.enabled()
+                ? "&7开奖倒计时: &e" + Text.countdown(lotteryService.nextDrawAt(LotteryType.HOLIDAY))
+                : "&7开奖倒计时: &c活动未开放");
         lore.add("&7当前奖池: &a" + Text.money(lotteryService.currentPool(LotteryType.HOLIDAY)));
         lore.add("&7你的投注: &f" + lotteryService.currentPurchases(player, LotteryType.HOLIDAY) + "/" + settings.maxBetsPerPlayer());
         lore.add("&7可选额度: &6" + String.join(" / ", amounts));
@@ -176,6 +178,9 @@ public final class MenuManager implements Listener {
         boolean refundLocked = lotteryService.holidayRefundLocked();
         for (HolidayOutcome outcome : HolidayOutcome.values()) {
             HolidaySettings.OutcomeSettings outcomeSettings = settings.outcome(outcome);
+            double outcomePool = lotteryService.holidayOutcomePool(outcome);
+            int outcomePlayers = lotteryService.holidayOutcomePlayers(outcome);
+            int outcomeBets = lotteryService.holidayOutcomeTickets(outcome);
             for (double amount : settings.betAmounts()) {
                 if (index >= slots.length) {
                     return;
@@ -184,27 +189,30 @@ public final class MenuManager implements Listener {
                 if (selectedOutcome.isPresent() && selectedOutcome.get() != outcome) {
                     List<String> lockedLore = List.of(
                             "&8&m------------------------",
-                            "&7You already selected: &f" + settings.outcome(selectedOutcome.get()).displayName(),
-                            "&7Refund before lock time to choose another pool.",
+                            "&7分池: &f" + outcomeSettings.displayName(),
+                            "&7该分池金额: &a" + Text.money(outcomePool),
+                            "&7该分池玩家: &f" + outcomePlayers,
+                            "&7该分池注数: &f" + outcomeBets,
+                            "&7你的选择: &f" + settings.outcome(selectedOutcome.get()).displayName(),
                             "&8&m------------------------",
-                            "&cLocked for this period"
+                            "&c本期已锁定其他分池",
+                            refundLocked ? "&7本期已进入退款锁定时间" : "&7退款后可以重新选择分池"
                     );
-                    inventory.setItem(slot, namedItem(Material.BARRIER, "&cLocked - " + outcomeSettings.displayName(), Text.color(lockedLore)));
+                    inventory.setItem(slot, namedItem(Material.BARRIER, "&c已锁定 - " + outcomeSettings.displayName(), Text.color(lockedLore)));
                     continue;
                 }
                 holder.choice(slot, outcome, amount);
-                double outcomePool = lotteryService.holidayOutcomePool(outcome);
-                double estimatedPool = lotteryService.currentPool(LotteryType.HOLIDAY);
-                double estimatedReturn = (outcomePool + amount) <= 0 ? 0 : estimatedPool / (outcomePool + amount);
+                double totalPool = lotteryService.currentPool(LotteryType.HOLIDAY);
                 List<String> lore = List.of(
                         "&8&m------------------------",
-                        "&7选择: &f" + outcomeSettings.displayName(),
+                        "&7分池: &f" + outcomeSettings.displayName(),
                         "&7投注额度: &6" + Text.money(amount),
-                        "&7该分池当前: &a" + Text.money(outcomePool),
-                        "&7总奖池: &a" + Text.money(estimatedPool),
+                        "&7该分池金额: &a" + Text.money(outcomePool),
+                        "&7该分池玩家: &f" + outcomePlayers,
+                        "&7该分池注数: &f" + outcomeBets,
+                        "&7总奖池: &a" + Text.money(totalPool),
                         "&7你的投注: &f" + current + "/" + settings.maxBetsPerPlayer(),
                         "&7命中时按同分池投注比例分配",
-                        "&7估算回报倍率: &e" + Text.money(estimatedReturn) + "x",
                         "&8&m------------------------",
                         "&e点击参与本分池"
                 );
@@ -215,13 +223,13 @@ public final class MenuManager implements Listener {
         if (current > 0) {
             List<String> refundLore = new ArrayList<>();
             refundLore.add("&8&m------------------------");
-            refundLore.add("&7Current bets: &f" + current + "/" + settings.maxBetsPerPlayer());
-            selectedOutcome.ifPresent(outcome -> refundLore.add("&7Selected pool: &f" + settings.outcome(outcome).displayName()));
-            refundLore.add("&7Refund lock: &f" + settings.refundLockBeforeMinutes() + " minutes before draw");
+            refundLore.add("&7当前投注: &f" + current + "/" + settings.maxBetsPerPlayer());
+            selectedOutcome.ifPresent(outcome -> refundLore.add("&7当前分池: &f" + settings.outcome(outcome).displayName()));
+            refundLore.add("&7开奖前 &f" + settings.refundLockBeforeMinutes() + " &7分钟锁定退款");
             refundLore.add("&8&m------------------------");
-            refundLore.add(refundLocked ? "&cRefund locked for this period" : "&eClick to refund current holiday bets");
+            refundLore.add(refundLocked ? "&c本期已进入退款锁定时间" : "&e点击退回当前活动投注");
             inventory.setItem(HOLIDAY_REFUND_SLOT, namedItem(refundLocked ? Material.BARRIER : Material.HOPPER,
-                    refundLocked ? "&cRefund Locked" : "&aRefund Holiday Bets", Text.color(refundLore)));
+                    refundLocked ? "&c退款已锁定" : "&a退回活动投注", Text.color(refundLore)));
         }
     }
 

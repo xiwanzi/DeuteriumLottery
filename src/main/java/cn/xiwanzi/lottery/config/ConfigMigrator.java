@@ -26,7 +26,7 @@ public final class ConfigMigrator {
                 additions.append(System.lineSeparator())
                         .append("# Added by lottery 1.1.x config migration.").append(System.lineSeparator())
                         .append("# This version marker is appended to avoid rewriting existing production config.").append(System.lineSeparator())
-                        .append("config-version: 3").append(System.lineSeparator());
+                        .append("config-version: 4").append(System.lineSeparator());
             } else {
                 editedLines = bumpConfigVersion(lines);
             }
@@ -66,10 +66,10 @@ public final class ConfigMigrator {
     private static boolean bumpConfigVersion(List<String> lines) {
         for (int i = 0; i < lines.size(); i++) {
             if (lines.get(i).startsWith("config-version:")) {
-                if (lines.get(i).equals("config-version: 3")) {
+                if (lines.get(i).equals("config-version: 4")) {
                     return false;
                 }
-                lines.set(i, "config-version: 3");
+                lines.set(i, "config-version: 4");
                 return true;
             }
         }

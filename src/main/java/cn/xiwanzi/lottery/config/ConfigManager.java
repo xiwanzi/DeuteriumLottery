@@ -204,6 +204,50 @@ public final class ConfigManager {
     }
 
     private MailSettings loadMail(FileConfiguration config) {
+        String winSubject = config.getString("mail.templates.win-subject", "[建筑彩票] 恭喜您中奖！");
+        List<String> winBody = config.getStringList("mail.templates.win-body");
+        if (winBody.isEmpty()) {
+            winBody = List.of(
+                    "尊敬的 %player%：",
+                    "",
+                    "恭喜您在 %lottery_type% 中获得 %prize%。",
+                    "中奖金额：%amount%",
+                    "开奖时间：%time%",
+                    "",
+                    "奖金已自动发放至您的游戏账户。",
+                    "建筑彩票系统"
+            );
+        }
+        String holidaySubject = config.getString("mail.templates.holiday-win-subject", "[建筑彩票] 节日公益活动命中通知");
+        List<String> holidayBody = config.getStringList("mail.templates.holiday-win-body");
+        if (holidayBody.isEmpty()) {
+            holidayBody = List.of(
+                    "尊敬的 %player%：",
+                    "",
+                    "恭喜您在第 %period% 期 %lottery_type% 中命中 %outcome%。",
+                    "本次获得：%amount%",
+                    "开奖时间：%time%",
+                    "",
+                    "奖励已自动发放至您的游戏账户。",
+                    "建筑彩票系统"
+            );
+        }
+        String refundSubject = config.getString("mail.templates.refund-subject", "[建筑彩票] 投注退款通知");
+        List<String> refundBody = config.getStringList("mail.templates.refund-body");
+        if (refundBody.isEmpty()) {
+            refundBody = List.of(
+                    "尊敬的 %player%：",
+                    "",
+                    "您的 %lottery_type% 第 %period% 期投注已由管理员处理退款。",
+                    "退款注数：%count%",
+                    "退款金额：%amount%",
+                    "处理人：%operator%",
+                    "处理时间：%time%",
+                    "",
+                    "退款已自动发放至您的游戏账户。",
+                    "建筑彩票系统"
+            );
+        }
         return new MailSettings(
                 config.getBoolean("mail.enabled", false),
                 config.getString("mail.smtp.host", ""),
@@ -214,8 +258,12 @@ public final class ConfigManager {
                 config.getString("mail.smtp.password", ""),
                 config.getString("mail.sender.from", ""),
                 config.getString("mail.sender.name", "建筑彩票通知"),
-                config.getString("mail.templates.win-subject", "[建筑彩票] 恭喜您中奖！"),
-                config.getStringList("mail.templates.win-body")
+                winSubject,
+                winBody,
+                holidaySubject,
+                holidayBody,
+                refundSubject,
+                refundBody
         );
     }
 
@@ -233,24 +281,24 @@ public final class ConfigManager {
         int holidaySlot = safeHolidaySlot(config.getInt("menu.holiday.slot", config.getInt("holiday-menu.slot", 13)),
                 dailySlot, weeklySlot, emailSlot);
         return new MenuSettings(
-                Text.color(config.getString("menu.title", "&6Lottery")),
+                Text.color(config.getString("menu.title", "&6建筑彩票")),
                 filler,
                 Text.color(config.getString("menu.filler.name", " ")),
                 dailySlot,
                 daily,
-                Text.color(config.getString("menu.daily.name", "&eDaily Lottery")),
+                Text.color(config.getString("menu.daily.name", "&e每日彩票")),
                 weeklySlot,
                 weekly,
-                Text.color(config.getString("menu.weekly.name", "&bWeekly Lottery")),
+                Text.color(config.getString("menu.weekly.name", "&b每周彩票")),
                 holidaySlot,
                 holiday,
                 Text.color(config.getString("menu.holiday.name",
-                        config.getString("holiday-menu.name", "&d&lHoliday Lottery"))),
+                        config.getString("holiday-menu.name", "&6&l节日公益活动"))),
                 emailSlot,
                 emailUnbound,
-                Text.color(config.getString("menu.email.unbound.name", "&eBind Notification")),
+                Text.color(config.getString("menu.email.unbound.name", "&e绑定中奖通知")),
                 emailBound,
-                Text.color(config.getString("menu.email.bound.name", "&aNotification Bound")),
+                Text.color(config.getString("menu.email.bound.name", "&a中奖通知已开启")),
                 config.getStringList("menu.email.unbound.lore"),
                 config.getStringList("menu.email.bound.lore"),
                 config.getStringList("menu.lore")
@@ -341,16 +389,16 @@ public final class ConfigManager {
             case "reset-success" -> "&a已重置 &e%type% &a到第 1 期，清空显示奖池: &e%amount%";
             case "holiday-disabled" -> "&c节日公益活动当前未开放。";
             case "holiday-bet-success" -> "&a已参与 &e%outcome% &a分池，额度 &e%amount% &7(%current%/%max%)";
-            case "holiday-pool-locked" -> "&cYou already selected another holiday pool this period. Refund before lock time to choose again.";
-            case "holiday-refund-success" -> "&aRefunded &e%count% &aholiday bet(s), amount &e%amount%&a.";
-            case "holiday-refund-empty" -> "&7You have no refundable holiday bets.";
-            case "holiday-refund-locked" -> "&cHoliday refund is locked for this period.";
-            case "holiday-refund-disabled" -> "&cHoliday refund is disabled.";
-            case "holiday-refund-failed" -> "&cHoliday refund failed. Please contact an administrator.";
-            case "refund-outcome-holiday-only" -> "&cPool names can only be used for holiday public event refunds.";
-            case "admin-refund-success" -> "&aRefunded &e%player% &a%type% period &e%period% &abet(s): &e%count% &7/ &e%amount%";
-            case "admin-refund-empty" -> "&7No refundable bets were found.";
-            case "invalid-period" -> "&cInvalid period number.";
+            case "holiday-pool-locked" -> "&c你本期已经选择了其他分池。开奖锁定前可以先退款，再重新选择。";
+            case "holiday-refund-success" -> "&a已退回 &e%count% &a注节日公益活动投注，金额 &e%amount%&a。";
+            case "holiday-refund-empty" -> "&7没有找到可退回的节日公益活动投注。";
+            case "holiday-refund-locked" -> "&c本期节日公益活动已进入开奖前锁定时间，无法自助退款。";
+            case "holiday-refund-disabled" -> "&c节日公益活动退款当前未开启。";
+            case "holiday-refund-failed" -> "&c节日公益活动退款失败，请联系管理员。";
+            case "refund-outcome-holiday-only" -> "&c只有节日公益活动退款可以指定 redstone / obsidian / gold 分池。";
+            case "admin-refund-success" -> "&a已为 &e%player% &a退回 &e%type% &a第 &e%period% &a期投注：&e%count% &a注，金额 &e%amount%&a。";
+            case "admin-refund-empty" -> "&7没有找到可退回的投注。";
+            case "invalid-period" -> "&c期数编号无效。";
             default -> key;
         };
     }
@@ -436,8 +484,8 @@ public final class ConfigManager {
             help.add(insertAt + 2, "&e/lottery period <daily|weekly|holiday> &7- 查看当前期状态");
             help.add(insertAt + 3, "&e/lottery pool add <daily|weekly|holiday> <金额> &7- 给当前期增加额外奖池");
             help.add(insertAt + 4, "&e/lottery history [daily|weekly|holiday] &7- 查看上一期开奖结果");
-            help.add(insertAt + 5, "&e/lottery refund <player> <daily|weekly|holiday> [period] [redstone|obsidian|gold|all] &7- Refund tickets");
-            help.add(insertAt + 6, "&e/lottery history [daily|weekly|holiday] [period] &7- View draw history");
+            help.add(insertAt + 5, "&e/lottery refund <玩家> <daily|weekly|holiday> [期数] [redstone|obsidian|gold|all] &7- 管理员退回指定投注");
+            help.add(insertAt + 6, "&e/lottery history [daily|weekly|holiday] [期数] &7- 查询指定期数记录");
         }
         return Text.color(help);
     }
@@ -472,6 +520,8 @@ public final class ConfigManager {
     }
 
     public record MailSettings(boolean enabled, String host, int port, boolean ssl, boolean starttls, String username,
-                               String password, String from, String senderName, String subject, List<String> body) {
+                               String password, String from, String senderName, String subject, List<String> body,
+                               String holidaySubject, List<String> holidayBody,
+                               String refundSubject, List<String> refundBody) {
     }
 }

@@ -16,6 +16,8 @@ import javax.mail.internet.MimeMessage;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Optional;
 import java.util.UUID;
@@ -76,9 +78,48 @@ public final class MailService {
         }
         storage.getEmail(playerUuid).ifPresent(email -> Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             try {
-                send(email, playerName, lotteryType, prize, amount);
+                Map<String, String> values = baseValues(playerName, lotteryType, amount);
+                values.put("%prize%", Text.plain(prize));
+                send(email, replace(settings.subject(), values), replace(String.join("\n", settings.body()), values));
             } catch (Exception ex) {
                 plugin.getLogger().warning("Failed to send lottery email to " + playerName + " (" + mask(email) + "): " + ex.getMessage());
+            }
+        }));
+    }
+
+    public void sendHolidayWinMail(UUID playerUuid, String playerName, String lotteryType, long periodId, String outcome, double amount) {
+        ConfigManager.MailSettings settings = configManager.mail();
+        if (!settings.enabled()) {
+            return;
+        }
+        storage.getEmail(playerUuid).ifPresent(email -> Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                Map<String, String> values = baseValues(playerName, lotteryType, amount);
+                values.put("%period%", Long.toString(periodId));
+                values.put("%outcome%", Text.plain(outcome));
+                values.put("%prize%", Text.plain(outcome));
+                send(email, replace(settings.holidaySubject(), values), replace(String.join("\n", settings.holidayBody()), values));
+            } catch (Exception ex) {
+                plugin.getLogger().warning("Failed to send holiday lottery email to " + playerName + " (" + mask(email) + "): " + ex.getMessage());
+            }
+        }));
+    }
+
+    public void sendRefundMail(UUID playerUuid, String playerName, String lotteryType, long periodId,
+                               double amount, int count, String operatorName) {
+        ConfigManager.MailSettings settings = configManager.mail();
+        if (!settings.enabled()) {
+            return;
+        }
+        storage.getEmail(playerUuid).ifPresent(email -> Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                Map<String, String> values = baseValues(playerName, lotteryType, amount);
+                values.put("%period%", Long.toString(periodId));
+                values.put("%count%", Integer.toString(count));
+                values.put("%operator%", operatorName == null || operatorName.isBlank() ? "管理员" : operatorName);
+                send(email, replace(settings.refundSubject(), values), replace(String.join("\n", settings.refundBody()), values));
+            } catch (Exception ex) {
+                plugin.getLogger().warning("Failed to send lottery refund email to " + playerName + " (" + mask(email) + "): " + ex.getMessage());
             }
         }));
     }
@@ -93,7 +134,9 @@ public final class MailService {
         }
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             try {
-                send(email.get(), playerName, "Test", "Test", 0);
+                Map<String, String> values = baseValues(playerName, "建筑彩票", 0);
+                values.put("%prize%", "测试邮件");
+                send(email.get(), replace(configManager.mail().subject(), values), replace(String.join("\n", configManager.mail().body()), values));
             } catch (Exception ex) {
                 plugin.getLogger().warning("Failed to send test lottery email to " + playerName + " (" + mask(email.get()) + "): " + ex.getMessage());
             }
@@ -101,7 +144,7 @@ public final class MailService {
         return true;
     }
 
-    private void send(String email, String playerName, String lotteryType, String prize, double amount) throws Exception {
+    private void send(String email, String subject, String body) throws Exception {
         ConfigManager.MailSettings settings = configManager.mail();
         Properties properties = new Properties();
         properties.put("mail.smtp.host", settings.host());
@@ -120,17 +163,25 @@ public final class MailService {
         MimeMessage message = new MimeMessage(session);
         message.setFrom(new InternetAddress(settings.from(), settings.senderName(), StandardCharsets.UTF_8.name()));
         message.setRecipient(Message.RecipientType.TO, new InternetAddress(email));
-        message.setSubject(replace(settings.subject(), playerName, lotteryType, prize, amount), StandardCharsets.UTF_8.name());
-        message.setText(replace(String.join("\n", settings.body()), playerName, lotteryType, prize, amount), StandardCharsets.UTF_8.name());
+        message.setSubject(subject, StandardCharsets.UTF_8.name());
+        message.setText(body, StandardCharsets.UTF_8.name());
         Transport.send(message);
     }
 
-    private String replace(String input, String playerName, String lotteryType, String prize, double amount) {
-        return input
-                .replace("%player%", playerName)
-                .replace("%lottery_type%", Text.plain(lotteryType))
-                .replace("%prize%", Text.plain(prize))
-                .replace("%amount%", Text.money(amount))
-                .replace("%time%", LocalDateTime.now().format(TIME_FORMAT));
+    private Map<String, String> baseValues(String playerName, String lotteryType, double amount) {
+        Map<String, String> values = new LinkedHashMap<>();
+        values.put("%player%", playerName);
+        values.put("%lottery_type%", Text.plain(lotteryType));
+        values.put("%amount%", Text.money(amount));
+        values.put("%time%", LocalDateTime.now().format(TIME_FORMAT));
+        return values;
+    }
+
+    private String replace(String input, Map<String, String> values) {
+        String result = input == null ? "" : input;
+        for (Map.Entry<String, String> entry : values.entrySet()) {
+            result = result.replace(entry.getKey(), entry.getValue());
+        }
+        return result;
     }
 }

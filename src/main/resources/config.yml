@@ -3,7 +3,7 @@
 # 作者: xiwanzi
 
 # 配置迭代版本。插件会用它判断是否需要追加新版本配置，不会覆盖已有生产配置。
-config-version: 3
+config-version: 4
 
 settings:
   # 彩票资金账户。玩家购票时，100% 付款会先进入这个账户。
@@ -173,6 +173,32 @@ mail:
       - "感谢您参与建筑彩票，祝您下次继续好运！"
       - ""
       - "建筑彩票系统"
+    holiday-win-subject: "[建筑彩票] 节日公益活动命中通知"
+    holiday-win-body:
+      - "尊敬的 %player%："
+      - ""
+      - "恭喜您在第 %period% 期 %lottery_type% 中命中 %outcome%。"
+      - "本次获得：%amount%"
+      - "开奖时间：%time%"
+      - ""
+      - "奖励已自动发放至您的游戏账户。"
+      - "感谢您参与节日公益活动。"
+      - ""
+      - "建筑彩票系统"
+    refund-subject: "[建筑彩票] 投注退款通知"
+    refund-body:
+      - "尊敬的 %player%："
+      - ""
+      - "您的 %lottery_type% 第 %period% 期投注已由管理员处理退款。"
+      - "退款注数：%count%"
+      - "退款金额：%amount%"
+      - "处理人：%operator%"
+      - "处理时间：%time%"
+      - ""
+      - "退款已自动发放至您的游戏账户。"
+      - "如有疑问，请联系服务器管理员。"
+      - ""
+      - "建筑彩票系统"
 
 broadcast:
   enabled: true
@@ -199,6 +225,7 @@ reminder:
     - "&8[&6建筑彩票&8] &e%type% &7将在 &f%minutes% &7分钟后开奖！"
     - "&8[&6建筑彩票&8] &7当前奖池: &a%pool% &7/ 最低开奖: &f%min_pool%"
     - "&8[&6建筑彩票&8] &e想搏一搏手气的玩家，现在还来得及。"
+    - "&8[&6建筑彩票&8] &7节日公益活动分池: &c红石 &f%redstone_players%人/%redstone_bets%注 &8| &8黑曜石 &f%obsidian_players%人/%obsidian_bets%注 &8| &6金块 &f%gold_players%人/%gold_bets%注"
 
 # 高危功能区。reset 会清空指定彩票类型的插件记录，并重置为第 1 期。
 # 该功能仍需要管理员权限，并且执行者 UUID 必须在 allowed-uuids 内。
@@ -244,7 +271,7 @@ messages:
   holiday-refund-locked: "&c本期节日公益活动已进入开奖前锁定时间，无法自助退款。"
   holiday-refund-disabled: "&c节日公益活动退款当前未开启。"
   holiday-refund-failed: "&c节日公益活动退款失败，请联系管理员。"
-  refund-outcome-holiday-only: "&c只有节日公益活动退款可以指定 redstone / obsidian / gold 分池。"
+  refund-outcome-holiday-only: "&c只有节日公益活动退款可以指定红石(redstone)、黑曜石(obsidian)、金块(gold)分池。"
   admin-refund-success: "&a已为 &e%player% &a退回 &e%type% &a第 &e%period% &a期投注：&e%count% &a注，金额 &e%amount%&a。"
   admin-refund-empty: "&7没有找到可退回的投注。"
   invalid-period: "&c期数编号无效。"

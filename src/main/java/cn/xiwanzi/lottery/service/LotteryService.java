@@ -216,6 +216,9 @@ public final class LotteryService {
             refunded++;
             total += ticket.price();
         }
+        Ticket firstTicket = tickets.get(0);
+        mail.sendRefundMail(firstTicket.playerUuid(), firstTicket.playerName(), configManager.lottery(type).displayName(),
+                periodId, total, refunded, operatorName);
         return RefundResult.success(refunded, total);
     }
 
@@ -243,6 +246,11 @@ public final class LotteryService {
             }
             refunded++;
             total += bet.amount();
+        }
+        if (admin) {
+            HolidayBet firstBet = bets.get(0);
+            mail.sendRefundMail(firstBet.playerUuid(), firstBet.playerName(), configManager.holiday().displayName(),
+                    periodId, total, refunded, operatorName);
         }
         return RefundResult.success(refunded, total);
     }
@@ -312,13 +320,32 @@ public final class LotteryService {
 
     private void broadcastReminder(LotteryType type, int minutes) {
         LotterySettings settings = configManager.lottery(type);
+        HolidaySettings holiday = configManager.holiday();
         for (String line : configManager.reminderLines()) {
+            if (type != LotteryType.HOLIDAY && isHolidayReminderLine(line)) {
+                continue;
+            }
             Bukkit.broadcastMessage(Text.color(line
                     .replace("%type%", settings.displayName())
                     .replace("%minutes%", Integer.toString(minutes))
                     .replace("%pool%", Text.money(currentPool(type)))
-                    .replace("%min_pool%", Text.money(settings.minTotalPool()))));
+                    .replace("%min_pool%", Text.money(settings.minTotalPool()))
+                    .replace("%redstone_players%", Integer.toString(holidayOutcomePlayers(HolidayOutcome.REDSTONE)))
+                    .replace("%redstone_bets%", Integer.toString(holidayOutcomeTickets(HolidayOutcome.REDSTONE)))
+                    .replace("%redstone_pool%", Text.money(holidayOutcomePool(HolidayOutcome.REDSTONE)))
+                    .replace("%obsidian_players%", Integer.toString(holidayOutcomePlayers(HolidayOutcome.OBSIDIAN)))
+                    .replace("%obsidian_bets%", Integer.toString(holidayOutcomeTickets(HolidayOutcome.OBSIDIAN)))
+                    .replace("%obsidian_pool%", Text.money(holidayOutcomePool(HolidayOutcome.OBSIDIAN)))
+                    .replace("%gold_players%", Integer.toString(holidayOutcomePlayers(HolidayOutcome.GOLD)))
+                    .replace("%gold_bets%", Integer.toString(holidayOutcomeTickets(HolidayOutcome.GOLD)))
+                    .replace("%gold_pool%", Text.money(holidayOutcomePool(HolidayOutcome.GOLD)))
+                    .replace("%refund_lock_minutes%", Integer.toString(holiday.refundLockBeforeMinutes()))));
         }
+    }
+
+    private boolean isHolidayReminderLine(String line) {
+        return line.contains("%redstone_") || line.contains("%obsidian_") || line.contains("%gold_")
+                || line.contains("%refund_lock_minutes%");
     }
 
     private void draw(LotteryType type) {
@@ -614,7 +641,7 @@ public final class LotteryService {
                 continue;
             }
             storage.recordLedger(LotteryType.HOLIDAY, periodId, "HOLIDAY_PAYOUT", award.playerUuid(), award.playerName(), award.amount(), note);
-            mail.sendWinMail(award.playerUuid(), award.playerName(), settings.displayName(),
+            mail.sendHolidayWinMail(award.playerUuid(), award.playerName(), settings.displayName(), periodId,
                     settings.outcome(outcome).displayName(), award.amount());
         }
         return success;
@@ -746,6 +773,9 @@ public final class LotteryService {
     }
 
     public long nextDrawAt(LotteryType type) {
+        if (type == LotteryType.HOLIDAY && !configManager.holiday().enabled()) {
+            return 0L;
+        }
         return storage.getPeriod(type).map(PeriodState::nextDrawAt).orElse(0L);
     }
 
@@ -773,6 +803,16 @@ public final class LotteryService {
         return period.map(state -> storage.holidayBetPool(state.periodId(), outcome)).orElse(0.0);
     }
 
+    public int holidayOutcomeTickets(HolidayOutcome outcome) {
+        Optional<PeriodState> period = storage.getPeriod(LotteryType.HOLIDAY);
+        return period.map(state -> storage.countHolidayBets(state.periodId(), outcome)).orElse(0);
+    }
+
+    public int holidayOutcomePlayers(HolidayOutcome outcome) {
+        Optional<PeriodState> period = storage.getPeriod(LotteryType.HOLIDAY);
+        return period.map(state -> storage.countHolidayPlayers(state.periodId(), outcome)).orElse(0);
+    }
+
     public int currentPurchases(Player player, LotteryType type) {
         Optional<PeriodState> period = storage.getPeriod(type);
         if (type == LotteryType.HOLIDAY) {
@@ -796,7 +836,8 @@ public final class LotteryService {
             double prizePool = holidayRewardPool(storage.holidayBetPool(period.get().periodId()), settings) + period.get().rollover();
             List<String> players = bets.stream().map(HolidayBet::playerName).distinct().collect(Collectors.toList());
             return new Preview(type, period.get().periodId(), bets.size(), players.size(), prizePool,
-                    settings.minTotalPool(), prizePool >= settings.minTotalPool(), players, period.get().nextDrawAt());
+                    settings.minTotalPool(), settings.enabled() && prizePool >= settings.minTotalPool(), players,
+                    settings.enabled() ? period.get().nextDrawAt() : 0);
         }
         LotterySettings settings = configManager.lottery(type);
         Optional<PeriodState> period = storage.getPeriod(type);

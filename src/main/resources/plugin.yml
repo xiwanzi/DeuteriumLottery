@@ -46,3 +46,5 @@ permissions:
     default: op
   lottery.admin.pool:
     default: op
+  lottery.admin.reset:
+    default: op
