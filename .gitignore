@@ -1,0 +1,26 @@
+# Build output
+target/
+
+# Local Maven/runtime caches used during development
+.m2repo/
+.tools/
+.maven-home/
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Runtime data
+plugins/
+*.db
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+logs/

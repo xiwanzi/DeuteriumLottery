@@ -1,0 +1,44 @@
+name: lottery
+version: ${project.version}
+main: cn.xiwanzi.lottery.LotteryPlugin
+api-version: '1.20'
+author: xiwanzi
+depend:
+  - Vault
+softdepend:
+  - PlaceholderAPI
+commands:
+  lottery:
+    description: Open and manage the lottery.
+    usage: /lottery
+    aliases:
+      - lot
+permissions:
+  lottery.use:
+    default: true
+  lottery.email.info:
+    default: true
+  lottery.email.bind:
+    default: true
+  lottery.email.unbind:
+    default: true
+  lottery.admin.open:
+    default: op
+  lottery.admin.reload:
+    default: op
+  lottery.admin.email:
+    default: op
+  lottery.admin.draw:
+    default: op
+  lottery.admin.preview:
+    default: op
+  lottery.admin.ledger:
+    default: op
+  lottery.admin.period:
+    default: op
+  lottery.admin.mailtest:
+    default: op
+  lottery.admin.help:
+    default: op
+  lottery.admin.pool:
+    default: op

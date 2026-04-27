@@ -1,0 +1,251 @@
+# lottery 插件主配置
+# 插件名: lottery
+# 作者: xiwanzi
+
+settings:
+  # 彩票资金账户。玩家购票时，100% 付款会先进入这个账户。
+  # 退款和派奖时，也会先从这个账户扣除，再发给玩家。
+  # 如果 XConomy 无法创建 lottery 账户，可以改成已有账户，例如 "TaX"。
+  system-account: "lottery"
+
+  # 菜单刷新间隔，单位 tick。20 tick = 1 秒。
+  menu-refresh-ticks: 20
+
+  # 自动开奖检查间隔，单位 tick。20 tick = 1 秒。
+  draw-check-ticks: 20
+
+  # true = 同一期同种彩票里，一个玩家最多中一个奖项。
+  same-player-single-prize: true
+
+  # 购买确认。false = 点击菜单彩票按钮后直接购买。
+  purchase-confirm: false
+
+  # 购买确认有效时间，单位秒。
+  purchase-confirm-seconds: 10
+
+daily:
+  display-name: "&e每日彩票"
+  price: 50
+  max-purchases-per-player: 2
+  min-total-pool: 200
+  reward-pool-percent: 70
+  house-pool-percent: 30
+
+  schedules:
+    fixed-daily:
+      enabled: true
+      time: "21:00"
+    fixed-weekly:
+      enabled: false
+      day: "SUNDAY"
+      time: "21:00"
+    interval:
+      enabled: false
+      minutes: 10
+
+  rewards:
+    first:
+      winners: 1
+      pool-percent: 65
+    second:
+      winners: 1
+      pool-percent: 25
+    third:
+      winners: 2
+      pool-percent: 10
+
+weekly:
+  display-name: "&b每周彩票"
+  price: 200
+  max-purchases-per-player: 2
+  min-total-pool: 1000
+  reward-pool-percent: 70
+  house-pool-percent: 30
+
+  schedules:
+    fixed-daily:
+      enabled: false
+      time: "21:00"
+    fixed-weekly:
+      enabled: true
+      day: "SUNDAY"
+      time: "21:30"
+    interval:
+      enabled: false
+      minutes: 10
+
+  rewards:
+    first:
+      winners: 1
+      pool-percent: 60
+    second:
+      winners: 1
+      pool-percent: 25
+    third:
+      winners: 2
+      pool-percent: 15
+
+mail:
+  enabled: false
+  smtp:
+    host: "smtp.qq.com"
+    port: 465
+    ssl: true
+    starttls: false
+    username: "你的QQ号@qq.com"
+    password: "你的SMTP授权码"
+  sender:
+    from: "你的QQ号@qq.com"
+    name: "建筑彩票通知"
+  templates:
+    win-subject: "[建筑彩票] 恭喜您在服务器彩票中中奖！"
+    win-body:
+      - "尊敬的 %player%："
+      - ""
+      - "恭喜您在本期开奖中获得奖励！"
+      - ""
+      - "彩票类型：%lottery_type%"
+      - "中奖奖项：%prize%"
+      - "中奖金额：%amount%"
+      - "开奖时间：%time%"
+      - ""
+      - "奖金已自动发放至您的游戏账户。"
+      - "感谢您参与建筑彩票，祝您下次继续好运！"
+      - ""
+      - "建筑彩票系统"
+
+broadcast:
+  enabled: true
+  empty: ""
+  hide-empty-prize-lines: true
+  lines:
+    - "&8[&6建筑彩票&8] &e第 &f%period% &e期 %type% &e正式开奖！"
+    - "&8[&6建筑彩票&8] &6一等奖得主: &f%first% &7今晚的幸运儿出现了！"
+    - "&8[&6建筑彩票&8] &b二等奖得主: &f%second%"
+    - "&8[&6建筑彩票&8] &a三等奖得主: &f%third%"
+  canceled-lines:
+    - "&8[&6建筑彩票&8] &e第 &f%period% &e期 %type% &7因奖池不足，本期未开奖。"
+    - "&8[&6建筑彩票&8] &7当前奖池: &f%pool% &7/ 最低开奖: &f%min_pool% &7，已自动退款。"
+  no-tickets-lines:
+    - "&8[&6建筑彩票&8] &e第 &f%period% &e期 %type% &7因无人购票，本期未开奖。"
+    - "&8[&6建筑彩票&8] &7当前奖池: &f%pool% &7，已进入下一期。"
+
+reminder:
+  enabled: true
+  minutes:
+    - 5
+    - 1
+  lines:
+    - "&8[&6建筑彩票&8] &e%type% &7将在 &f%minutes% &7分钟后开奖！"
+    - "&8[&6建筑彩票&8] &7当前奖池: &a%pool% &7/ 最低开奖: &f%min_pool%"
+    - "&8[&6建筑彩票&8] &e想搏一搏手气的玩家，现在还来得及。"
+
+# 高危功能区。reset 会清空指定彩票类型的插件记录，并重置为第 1 期。
+# 该功能仍需要管理员权限，并且执行者 UUID 必须在 allowed-uuids 内。
+# 注意：reset 不会修改 XConomy 里的 lottery/TaX 账户余额，避免误动其他税收资金。
+danger-zone:
+  reset:
+    allowed-uuids: []
+
+messages:
+  prefix: "&8[&6建筑彩票&8] &r"
+  no-permission: "&c你没有权限。"
+  player-only: "&c只有玩家可以使用这个命令。"
+  player-not-found: "&c找不到这个玩家。"
+  reload-success: "&a配置已重载。"
+  menu-opened: "&a已打开彩票菜单。"
+  target-menu-opened: "&a已为 &e%player% &a打开彩票菜单。"
+  economy-unavailable: "&c彩票经济账户当前不可用，请联系管理员。"
+  not-enough-money: "&c你的余额不足。"
+  purchase-success: "&a已购买 &e%type% &a彩票。&7(%current%/%max%)"
+  purchase-limit: "&c你已经达到本期购买上限。"
+  email-invalid: "&c请输入有效邮箱或 QQ 号。"
+  email-bound: "&a已绑定通知邮箱: &e%email%"
+  email-unbound: "&a已解绑通知邮箱。"
+  email-info: "&a当前通知邮箱: &e%email%"
+  email-info-empty: "&7当前未绑定通知邮箱。"
+  email-info-target: "&e%player% &a的通知邮箱: &e%email%"
+  email-info-target-empty: "&e%player% &7当前未绑定通知邮箱。"
+  email-edited: "&a已修改 &e%player% &a的通知邮箱: &e%email%"
+  email-cleared: "&a已清除 &e%player% &a的通知邮箱。"
+  draw-started: "&a已手动开奖: &e%type%"
+  invalid-type: "&c彩票类型只能是 daily 或 weekly。"
+  purchase-confirm: "&e再次点击确认购买 &f%type% &e彩票。"
+  mailtest-sent: "&a测试邮件已尝试发送给 &e%player%&a。"
+  mailtest-no-email: "&e%player% &c没有绑定通知邮箱。"
+  mailtest-disabled: "&c邮件通知当前未启用。"
+  pool-add-success: "&a已为 &e%type% &a当前期增加奖池: &e%amount%"
+  pool-add-failed: "&c增加奖池失败，请检查彩票资金账户是否可用。"
+  reset-denied: "&c你不是该高危操作的授权执行者。"
+  reset-confirm: "&c高危操作：将清空 &e%type% &c的插件奖池记录并重置到第 1 期。&7请再次输入: &f%command%"
+  reset-success: "&a已重置 &e%type% &a到第 1 期，清空显示奖池: &e%amount%"
+
+admin-help:
+  - "&8&m--------------------------------------------------"
+  - "&6建筑彩票 管理员指令"
+  - "&e/lottery &7- 打开自己的彩票菜单"
+  - "&e/lottery bind <邮箱|QQ> &7- 绑定自己的通知邮箱"
+  - "&e/lottery info [玩家] &7- 查询通知邮箱"
+  - "&e/lottery unbind &7- 解绑自己的通知邮箱"
+  - "&e/lottery open <玩家> &7- 给指定玩家打开彩票菜单"
+  - "&e/lottery reload &7- 重载配置"
+  - "&e/lottery draw <daily|weekly> &7- 手动开奖"
+  - "&e/lottery preview <daily|weekly> &7- 预览当前期开奖状态"
+  - "&e/lottery period <daily|weekly> &7- 查看当前期状态"
+  - "&e/lottery pool add <daily|weekly> <金额> &7- 给当前期增加额外奖池"
+  - "&e/lottery reset <daily|weekly> confirm &7- 高危：清空记录并重置到第 1 期"
+  - "&e/lottery history [daily|weekly] &7- 查看上一期开奖结果"
+  - "&e/lottery ledger <玩家> &7- 查看玩家最近流水"
+  - "&e/lottery mailtest <玩家> &7- 发送测试邮件"
+  - "&e/lottery edit <玩家> <邮箱|QQ|clear> &7- 修改通知邮箱"
+  - "&e/lottery help &7- 查看管理员帮助"
+  - "&8&m--------------------------------------------------"
+
+menu:
+  title: "&6&l建筑彩票"
+
+  filler:
+    material: "GRAY_STAINED_GLASS_PANE"
+    name: " "
+
+  daily:
+    slot: 11
+    material: "SUNFLOWER"
+    name: "&e&l每日幸运池"
+
+  weekly:
+    slot: 15
+    material: "CLOCK"
+    name: "&b&l每周大奖池"
+
+  email:
+    slot: 22
+    unbound:
+      material: "WRITABLE_BOOK"
+      name: "&e&l绑定中奖通知"
+      lore:
+        - "&7绑定 QQ 号或邮箱，中奖不错过。"
+        - "&7离线中奖也能收到通知邮件。"
+        - ""
+        - "&f绑定命令: &a%bind_command%"
+        - "&8示例: /lottery bind 123456"
+    bound:
+      material: "ENCHANTED_BOOK"
+      name: "&a&l中奖通知已开启"
+      lore:
+        - "&7当前绑定: &f%email%"
+        - "&7中奖后会向该邮箱发送通知。"
+        - ""
+        - "&f查询命令: &a%info_command%"
+        - "&f解绑命令: &c%unbind_command%"
+
+  lore:
+    - "&8&m------------------------"
+    - "&7类型: &f%type%"
+    - "&7开奖倒计时: &e%countdown%"
+    - "&7单注价格: &6%price%"
+    - "&7当前奖池: &a%pool%"
+    - "&7你的注数: &f%current%/%max%"
+    - "&7上期头奖: &d%last_first_winner%"
+    - "&8&m------------------------"
+    - "&e点击购买一注，试试今天的手气！"
