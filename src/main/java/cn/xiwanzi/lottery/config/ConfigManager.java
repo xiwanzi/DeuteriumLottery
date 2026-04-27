@@ -1,5 +1,6 @@
 package cn.xiwanzi.lottery.config;
 
+import cn.xiwanzi.lottery.model.HolidayOutcome;
 import cn.xiwanzi.lottery.model.LotteryType;
 import cn.xiwanzi.lottery.model.PrizeTier;
 import cn.xiwanzi.lottery.util.Text;
@@ -25,6 +26,7 @@ public final class ConfigManager {
 
     private final JavaPlugin plugin;
     private final Map<LotteryType, LotterySettings> lotteries = new EnumMap<>(LotteryType.class);
+    private HolidaySettings holidaySettings;
     private MailSettings mailSettings;
     private MenuSettings menuSettings;
     private String prefix;
@@ -76,8 +78,10 @@ public final class ConfigManager {
         prefix = Text.color(config.getString("messages.prefix", "&8[&6建筑彩票&8] &r"));
 
         lotteries.clear();
-        lotteries.put(LotteryType.DAILY, loadLottery(config, LotteryType.DAILY));
-        lotteries.put(LotteryType.WEEKLY, loadLottery(config, LotteryType.WEEKLY));
+        for (LotteryType type : LotteryType.values()) {
+            lotteries.put(type, loadLottery(config, type));
+        }
+        holidaySettings = loadHoliday(config);
         mailSettings = loadMail(config);
         menuSettings = loadMenu(config);
     }
@@ -113,6 +117,67 @@ public final class ConfigManager {
         return settings;
     }
 
+    private HolidaySettings loadHoliday(FileConfiguration config) {
+        String path = "holiday";
+        double rewardPoolPercent = clampPercent(config.getDouble(path + ".reward-pool-percent", 90));
+        double configuredHousePercent = clampPercent(config.getDouble(path + ".house-pool-percent", 100 - rewardPoolPercent));
+        double housePoolPercent = 100 - rewardPoolPercent;
+        if (Math.abs(configuredHousePercent - housePoolPercent) > 0.0001) {
+            plugin.getLogger().warning("holiday house-pool-percent was normalized to " + housePoolPercent
+                    + " because reward-pool-percent is " + rewardPoolPercent + ".");
+        }
+        List<Double> betAmounts = config.getDoubleList(path + ".bet-amounts").stream()
+                .filter(amount -> amount > 0)
+                .distinct()
+                .toList();
+        if (betAmounts.isEmpty()) {
+            double fallback = Math.max(1, config.getDouble(path + ".price", 200));
+            betAmounts = List.of(fallback);
+        }
+        HolidaySettings settings = new HolidaySettings(
+                config.getBoolean(path + ".enabled", false),
+                Text.color(config.getString(path + ".display-name", "节日公益活动")),
+                Math.max(0, config.getDouble(path + ".min-total-pool", 1500)),
+                rewardPoolPercent,
+                housePoolPercent,
+                Math.max(1, config.getInt(path + ".max-bets-per-player",
+                        config.getInt(path + ".max-purchases-per-player", 5))),
+                config.getBoolean(path + ".refund.enabled", true),
+                Math.max(0, config.getInt(path + ".refund.lock-before-minutes", 60)),
+                loadSchedule(config, path + ".schedules", LotteryType.HOLIDAY),
+                betAmounts
+        );
+        for (HolidayOutcome outcome : HolidayOutcome.values()) {
+            String outcomePath = path + ".outcomes." + outcome.key();
+            settings.outcomes().put(outcome, new HolidaySettings.OutcomeSettings(
+                    Text.color(config.getString(outcomePath + ".display-name", outcome.defaultDisplayName())),
+                    material(config.getString(outcomePath + ".material", defaultOutcomeMaterialName(outcome)), defaultOutcomeMaterial(outcome)),
+                    clampPercent(config.getDouble(outcomePath + ".chance-percent", defaultOutcomeChance(outcome)))
+            ));
+        }
+        return settings;
+    }
+
+    private Material defaultOutcomeMaterial(HolidayOutcome outcome) {
+        return switch (outcome) {
+            case REDSTONE -> Material.REDSTONE_BLOCK;
+            case OBSIDIAN -> Material.OBSIDIAN;
+            case GOLD -> Material.GOLD_BLOCK;
+        };
+    }
+
+    private String defaultOutcomeMaterialName(HolidayOutcome outcome) {
+        return switch (outcome) {
+            case REDSTONE -> "REDSTONE_BLOCK";
+            case OBSIDIAN -> "OBSIDIAN";
+            case GOLD -> "GOLD_BLOCK";
+        };
+    }
+
+    private double defaultOutcomeChance(HolidayOutcome outcome) {
+        return outcome == HolidayOutcome.GOLD ? 10 : 45;
+    }
+
     private ScheduleSettings loadSchedule(FileConfiguration config, String path, LotteryType type) {
         ScheduleSettings.FixedDaily fixedDaily = new ScheduleSettings.FixedDaily(
                 config.getBoolean(path + ".fixed-daily.enabled", false),
@@ -139,6 +204,50 @@ public final class ConfigManager {
     }
 
     private MailSettings loadMail(FileConfiguration config) {
+        String winSubject = config.getString("mail.templates.win-subject", "[建筑彩票] 恭喜您中奖！");
+        List<String> winBody = config.getStringList("mail.templates.win-body");
+        if (winBody.isEmpty()) {
+            winBody = List.of(
+                    "尊敬的 %player%：",
+                    "",
+                    "恭喜您在 %lottery_type% 中获得 %prize%。",
+                    "中奖金额：%amount%",
+                    "开奖时间：%time%",
+                    "",
+                    "奖金已自动发放至您的游戏账户。",
+                    "建筑彩票系统"
+            );
+        }
+        String holidaySubject = config.getString("mail.templates.holiday-win-subject", "[建筑彩票] 节日公益活动命中通知");
+        List<String> holidayBody = config.getStringList("mail.templates.holiday-win-body");
+        if (holidayBody.isEmpty()) {
+            holidayBody = List.of(
+                    "尊敬的 %player%：",
+                    "",
+                    "恭喜您在第 %period% 期 %lottery_type% 中命中 %outcome%。",
+                    "本次获得：%amount%",
+                    "开奖时间：%time%",
+                    "",
+                    "奖励已自动发放至您的游戏账户。",
+                    "建筑彩票系统"
+            );
+        }
+        String refundSubject = config.getString("mail.templates.refund-subject", "[建筑彩票] 投注退款通知");
+        List<String> refundBody = config.getStringList("mail.templates.refund-body");
+        if (refundBody.isEmpty()) {
+            refundBody = List.of(
+                    "尊敬的 %player%：",
+                    "",
+                    "您的 %lottery_type% 第 %period% 期投注已由管理员处理退款。",
+                    "退款注数：%count%",
+                    "退款金额：%amount%",
+                    "处理人：%operator%",
+                    "处理时间：%time%",
+                    "",
+                    "退款已自动发放至您的游戏账户。",
+                    "建筑彩票系统"
+            );
+        }
         return new MailSettings(
                 config.getBoolean("mail.enabled", false),
                 config.getString("mail.smtp.host", ""),
@@ -149,8 +258,12 @@ public final class ConfigManager {
                 config.getString("mail.smtp.password", ""),
                 config.getString("mail.sender.from", ""),
                 config.getString("mail.sender.name", "建筑彩票通知"),
-                config.getString("mail.templates.win-subject", "[建筑彩票] 恭喜您中奖！"),
-                config.getStringList("mail.templates.win-body")
+                winSubject,
+                winBody,
+                holidaySubject,
+                holidayBody,
+                refundSubject,
+                refundBody
         );
     }
 
@@ -158,27 +271,55 @@ public final class ConfigManager {
         Material filler = material(config.getString("menu.filler.material", "GRAY_STAINED_GLASS_PANE"), Material.GRAY_STAINED_GLASS_PANE);
         Material daily = material(config.getString("menu.daily.material", "SUNFLOWER"), Material.SUNFLOWER);
         Material weekly = material(config.getString("menu.weekly.material", "CLOCK"), Material.CLOCK);
+        Material holiday = material(config.getString("menu.holiday.material",
+                config.getString("holiday-menu.material", "EMERALD")), Material.EMERALD);
         Material emailUnbound = material(config.getString("menu.email.unbound.material", "WRITABLE_BOOK"), Material.WRITABLE_BOOK);
         Material emailBound = material(config.getString("menu.email.bound.material", "ENCHANTED_BOOK"), Material.ENCHANTED_BOOK);
+        int dailySlot = config.getInt("menu.daily.slot", 11);
+        int weeklySlot = config.getInt("menu.weekly.slot", 15);
+        int emailSlot = config.getInt("menu.email.slot", 22);
+        int holidaySlot = safeHolidaySlot(config.getInt("menu.holiday.slot", config.getInt("holiday-menu.slot", 13)),
+                dailySlot, weeklySlot, emailSlot);
         return new MenuSettings(
-                Text.color(config.getString("menu.title", "&6Lottery")),
+                Text.color(config.getString("menu.title", "&6建筑彩票")),
                 filler,
                 Text.color(config.getString("menu.filler.name", " ")),
-                config.getInt("menu.daily.slot", 11),
+                dailySlot,
                 daily,
-                Text.color(config.getString("menu.daily.name", "&eDaily Lottery")),
-                config.getInt("menu.weekly.slot", 15),
+                Text.color(config.getString("menu.daily.name", "&e每日彩票")),
+                weeklySlot,
                 weekly,
-                Text.color(config.getString("menu.weekly.name", "&bWeekly Lottery")),
-                config.getInt("menu.email.slot", 22),
+                Text.color(config.getString("menu.weekly.name", "&b每周彩票")),
+                holidaySlot,
+                holiday,
+                Text.color(config.getString("menu.holiday.name",
+                        config.getString("holiday-menu.name", "&6&l节日公益活动"))),
+                emailSlot,
                 emailUnbound,
-                Text.color(config.getString("menu.email.unbound.name", "&eBind Notification")),
+                Text.color(config.getString("menu.email.unbound.name", "&e绑定中奖通知")),
                 emailBound,
-                Text.color(config.getString("menu.email.bound.name", "&aNotification Bound")),
+                Text.color(config.getString("menu.email.bound.name", "&a中奖通知已开启")),
                 config.getStringList("menu.email.unbound.lore"),
                 config.getStringList("menu.email.bound.lore"),
                 config.getStringList("menu.lore")
         );
+    }
+
+    private int safeHolidaySlot(int preferred, int dailySlot, int weeklySlot, int emailSlot) {
+        if (preferred >= 0 && preferred < 27 && preferred != dailySlot && preferred != weeklySlot && preferred != emailSlot) {
+            return preferred;
+        }
+        for (int slot : List.of(13, 10, 12, 14, 16)) {
+            if (slot != dailySlot && slot != weeklySlot && slot != emailSlot) {
+                return slot;
+            }
+        }
+        for (int slot = 0; slot < 27; slot++) {
+            if (slot != dailySlot && slot != weeklySlot && slot != emailSlot) {
+                return slot;
+            }
+        }
+        return preferred;
     }
 
     private Set<UUID> loadResetAllowedUuids(FileConfiguration config) {
@@ -225,6 +366,10 @@ public final class ConfigManager {
         return lotteries.get(type);
     }
 
+    public HolidaySettings holiday() {
+        return holidaySettings;
+    }
+
     public String message(String key) {
         return prefix + Text.color(plugin.getConfig().getString("messages." + key, defaultMessage(key)));
     }
@@ -233,11 +378,27 @@ public final class ConfigManager {
         return prefix + Text.color(message);
     }
 
+    public String invalidTypeMessage() {
+        return prefix + Text.color("&c彩票类型只能是 daily、weekly 或 holiday。");
+    }
+
     private String defaultMessage(String key) {
         return switch (key) {
             case "reset-denied" -> "&c你不是该高危操作的授权执行者。";
             case "reset-confirm" -> "&c高危操作：将清空 &e%type% &c的插件奖池记录并重置到第 1 期。&7请再次输入: &f%command%";
             case "reset-success" -> "&a已重置 &e%type% &a到第 1 期，清空显示奖池: &e%amount%";
+            case "holiday-disabled" -> "&c节日公益活动当前未开放。";
+            case "holiday-bet-success" -> "&a已参与 &e%outcome% &a分池，额度 &e%amount% &7(%current%/%max%)";
+            case "holiday-pool-locked" -> "&c你本期已经选择了其他分池。开奖锁定前可以先退款，再重新选择。";
+            case "holiday-refund-success" -> "&a已退回 &e%count% &a注节日公益活动投注，金额 &e%amount%&a。";
+            case "holiday-refund-empty" -> "&7没有找到可退回的节日公益活动投注。";
+            case "holiday-refund-locked" -> "&c本期节日公益活动已进入开奖前锁定时间，无法自助退款。";
+            case "holiday-refund-disabled" -> "&c节日公益活动退款当前未开启。";
+            case "holiday-refund-failed" -> "&c节日公益活动退款失败，请联系管理员。";
+            case "refund-outcome-holiday-only" -> "&c只有节日公益活动退款可以指定 redstone / obsidian / gold 分池。";
+            case "admin-refund-success" -> "&a已为 &e%player% &a退回 &e%type% &a第 &e%period% &a期投注：&e%count% &a注，金额 &e%amount%&a。";
+            case "admin-refund-empty" -> "&7没有找到可退回的投注。";
+            case "invalid-period" -> "&c期数编号无效。";
             default -> key;
         };
     }
@@ -315,12 +476,22 @@ public final class ConfigManager {
     }
 
     public List<String> adminHelp() {
-        return Text.color(plugin.getConfig().getStringList("admin-help"));
+        List<String> help = new java.util.ArrayList<>(plugin.getConfig().getStringList("admin-help"));
+        if (help.stream().noneMatch(line -> line.contains("holiday"))) {
+            int insertAt = Math.max(0, help.size() - 1);
+            help.add(insertAt, "&e/lottery draw <daily|weekly|holiday> &7- 手动开奖");
+            help.add(insertAt + 1, "&e/lottery preview <daily|weekly|holiday> &7- 预览当前期开奖状态");
+            help.add(insertAt + 2, "&e/lottery period <daily|weekly|holiday> &7- 查看当前期状态");
+            help.add(insertAt + 3, "&e/lottery pool add <daily|weekly|holiday> <金额> &7- 给当前期增加额外奖池");
+            help.add(insertAt + 4, "&e/lottery history [daily|weekly|holiday] &7- 查看上一期开奖结果");
+            help.add(insertAt + 5, "&e/lottery refund <玩家> <daily|weekly|holiday> [期数] [redstone|obsidian|gold|all] &7- 管理员退回指定投注");
+            help.add(insertAt + 6, "&e/lottery history [daily|weekly|holiday] [期数] &7- 查询指定期数记录");
+        }
+        return Text.color(help);
     }
 
     public long nextDrawAt(LotteryType type, long afterMillis) {
-        LotterySettings settings = lottery(type);
-        ScheduleSettings schedule = settings.schedule();
+        ScheduleSettings schedule = type == LotteryType.HOLIDAY ? holiday().schedule() : lottery(type).schedule();
         if (!schedule.valid()) {
             return 0;
         }
@@ -349,6 +520,8 @@ public final class ConfigManager {
     }
 
     public record MailSettings(boolean enabled, String host, int port, boolean ssl, boolean starttls, String username,
-                               String password, String from, String senderName, String subject, List<String> body) {
+                               String password, String from, String senderName, String subject, List<String> body,
+                               String holidaySubject, List<String> holidayBody,
+                               String refundSubject, List<String> refundBody) {
     }
 }

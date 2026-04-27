@@ -4,6 +4,7 @@ import cn.xiwanzi.lottery.config.ConfigManager;
 import cn.xiwanzi.lottery.mail.MailService;
 import cn.xiwanzi.lottery.menu.MenuManager;
 import cn.xiwanzi.lottery.model.Award;
+import cn.xiwanzi.lottery.model.HolidayOutcome;
 import cn.xiwanzi.lottery.model.LedgerEntry;
 import cn.xiwanzi.lottery.model.LotteryType;
 import cn.xiwanzi.lottery.model.PeriodState;
@@ -74,6 +75,9 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
         if (args[0].equalsIgnoreCase("history")) {
             return history(sender, args);
         }
+        if (args[0].equalsIgnoreCase("refund")) {
+            return refund(sender, args);
+        }
         if (args[0].equalsIgnoreCase("ledger")) {
             return ledger(sender, args);
         }
@@ -92,7 +96,7 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
         if (args[0].equalsIgnoreCase("reset")) {
             return reset(sender, args);
         }
-        sender.sendMessage("/" + label + " [open|reload|info|bind|unbind|edit|email|draw|reset]");
+        sender.sendMessage("/" + label + " [open|reload|info|bind|unbind|edit|email|draw|refund|reset]");
         return true;
     }
 
@@ -143,12 +147,12 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (args.length < 2) {
-            sender.sendMessage("/lottery draw <daily|weekly>");
+            sender.sendMessage("/lottery draw <" + LotteryType.keys() + ">");
             return true;
         }
         Optional<LotteryType> type = LotteryType.from(args[1]);
         if (type.isEmpty()) {
-            sender.sendMessage(configManager.message("invalid-type"));
+            sender.sendMessage(configManager.invalidTypeMessage());
             return true;
         }
         lotteryService.drawNow(type.get());
@@ -167,31 +171,160 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
         }
         LotteryService.Preview preview = lotteryService.preview(type.get());
         sender.sendMessage(configManager.prefixed("&e" + configManager.lottery(type.get()).displayName()
-                + " &7period &f" + preview.periodId() + " &7preview"));
-        sender.sendMessage(configManager.prefixed("&7Pool: &f" + Text.money(preview.pool()) + " &7/ Min: &f" + Text.money(preview.minPool())));
-        sender.sendMessage(configManager.prefixed("&7Tickets: &f" + preview.tickets() + " &7Players: &f" + preview.players()));
-        sender.sendMessage(configManager.prefixed("&7Status: " + (preview.drawable() ? "&aDrawable" : "&cPool too low")));
+                + " &7第 &f" + preview.periodId() + " &7期预览"));
+        sender.sendMessage(configManager.prefixed("&7当前奖池: &f" + Text.money(preview.pool()) + " &7/ 最低开奖: &f" + Text.money(preview.minPool())));
+        sender.sendMessage(configManager.prefixed("&7投注注数: &f" + preview.tickets() + " &7投注玩家: &f" + preview.players()));
+        sender.sendMessage(configManager.prefixed("&7状态: " + (preview.drawable() ? "&a满足开奖条件" : "&c奖池不足")));
         return true;
     }
 
     private boolean history(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("lottery.admin.history")) {
+            sender.sendMessage(configManager.message("no-permission"));
+            return true;
+        }
         LotteryType type = LotteryType.from(args.length >= 2 ? args[1] : "daily").orElse(LotteryType.DAILY);
         Optional<PeriodState> period = storage.getPeriod(type);
         if (period.isEmpty() || period.get().periodId() <= 1) {
-            sender.sendMessage(configManager.prefixed("&7No draw history."));
+            sender.sendMessage(configManager.prefixed("&7暂无开奖历史。"));
             return true;
         }
         long historyPeriod = period.get().periodId() - 1;
+        if (args.length >= 3) {
+            try {
+                historyPeriod = Long.parseLong(args[2]);
+            } catch (NumberFormatException ex) {
+                sender.sendMessage("/lottery history [daily|weekly|holiday] [期数]");
+                return true;
+            }
+        }
+        if (historyPeriod <= 0 || historyPeriod >= period.get().periodId()) {
+            sender.sendMessage(configManager.message("invalid-period"));
+            return true;
+        }
+        if (type == LotteryType.HOLIDAY) {
+            List<LedgerEntry> entries = storage.periodLedger(type, historyPeriod);
+            Optional<String> outcome = entries.stream()
+                    .filter(entry -> entry.action().equals("HOLIDAY_OUTCOME"))
+                    .map(LedgerEntry::note)
+                    .findFirst();
+            List<LedgerEntry> payouts = entries.stream()
+                    .filter(entry -> entry.action().equals("HOLIDAY_PAYOUT"))
+                    .toList();
+            List<LedgerEntry> refunds = entries.stream()
+                    .filter(entry -> entry.action().equals("HOLIDAY_REFUND") || entry.action().equals("HOLIDAY_ADMIN_REFUND")
+                            || entry.action().equals("REFUND"))
+                    .toList();
+            sender.sendMessage(configManager.prefixed("&e" + configManager.lottery(type).displayName()
+                    + " &7第 &f" + historyPeriod + " &7期开奖结果"));
+            outcome.ifPresent(value -> sender.sendMessage(configManager.prefixed("&7开奖结果: &f"
+                    + HolidayOutcome.from(value)
+                    .map(result -> configManager.holiday().outcome(result).displayName())
+                    .orElse(value))));
+            if (payouts.isEmpty()) {
+                boolean rolled = entries.stream().anyMatch(entry -> entry.action().equals("HOLIDAY_ROLLOVER"));
+                sender.sendMessage(configManager.prefixed(rolled
+                        ? "&7本期无人命中，奖池已滚入下一期。"
+                        : "&7本期没有派奖记录，可能已取消或退款。"));
+                for (LedgerEntry entry : refunds) {
+                    sender.sendMessage(configManager.prefixed("&7退款: &f" + entry.playerName()
+                            + " &7金额: &f" + Text.money(entry.amount()) + " &8" + entry.note()));
+                }
+                return true;
+            }
+            for (LedgerEntry entry : payouts) {
+                sender.sendMessage(configManager.prefixed("&7中奖玩家: &f" + entry.playerName()
+                        + " &7金额: &f" + Text.money(entry.amount())));
+            }
+            for (LedgerEntry entry : refunds) {
+                sender.sendMessage(configManager.prefixed("&7退款: &f" + entry.playerName()
+                        + " &7金额: &f" + Text.money(entry.amount()) + " &8" + entry.note()));
+            }
+            return true;
+        }
         List<Award> awards = storage.awards(type, historyPeriod);
+        List<LedgerEntry> refunds = storage.periodLedger(type, historyPeriod).stream()
+                .filter(entry -> entry.action().equals("ADMIN_REFUND") || entry.action().equals("REFUND"))
+                .toList();
         sender.sendMessage(configManager.prefixed("&e" + configManager.lottery(type).displayName()
-                + " &7period &f" + historyPeriod + " &7result"));
-        if (awards.isEmpty()) {
-            sender.sendMessage(configManager.prefixed("&7No winner records. This period may have been canceled."));
+                + " &7第 &f" + historyPeriod + " &7期开奖结果"));
+        if (awards.isEmpty() && refunds.isEmpty()) {
+            sender.sendMessage(configManager.prefixed("&7本期没有中奖记录，可能已取消或退款。"));
             return true;
         }
         for (Award award : awards) {
             sender.sendMessage(configManager.prefixed("&7" + award.tier().displayName() + ": &f" + award.playerName()
-                    + " &7Amount: &f" + Text.money(award.amount())));
+                    + " &7金额: &f" + Text.money(award.amount())));
+        }
+        for (LedgerEntry entry : refunds) {
+            sender.sendMessage(configManager.prefixed("&7退款: &f" + entry.playerName()
+                    + " &7金额: &f" + Text.money(entry.amount()) + " &8" + entry.note()));
+        }
+        return true;
+    }
+
+    @SuppressWarnings("deprecation")
+    private boolean refund(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("lottery.admin.refund")) {
+            sender.sendMessage(configManager.message("no-permission"));
+            return true;
+        }
+        if (args.length < 3) {
+            sender.sendMessage("/lottery refund <player> <daily|weekly|holiday> [period] [redstone|obsidian|gold|all]");
+            return true;
+        }
+        OfflinePlayer target = Bukkit.getOfflinePlayer(args[1]);
+        if (!target.hasPlayedBefore() && !target.isOnline()) {
+            sender.sendMessage(configManager.message("player-not-found"));
+            return true;
+        }
+        Optional<LotteryType> type = LotteryType.from(args[2]);
+        if (type.isEmpty()) {
+            sender.sendMessage(configManager.message("invalid-type"));
+            return true;
+        }
+        Optional<PeriodState> current = storage.getPeriod(type.get());
+        if (current.isEmpty()) {
+            sender.sendMessage(configManager.message("invalid-period"));
+            return true;
+        }
+        long periodId = current.get().periodId();
+        if (args.length >= 4) {
+            try {
+                periodId = Long.parseLong(args[3]);
+            } catch (NumberFormatException ex) {
+                sender.sendMessage("/lottery refund <player> <daily|weekly|holiday> [period] [redstone|obsidian|gold|all]");
+                return true;
+            }
+        }
+        if (periodId <= 0 || periodId > current.get().periodId()) {
+            sender.sendMessage(configManager.message("invalid-period"));
+            return true;
+        }
+        Optional<HolidayOutcome> outcome = Optional.empty();
+        if (args.length >= 5 && !args[4].equalsIgnoreCase("all")) {
+            if (type.get() != LotteryType.HOLIDAY) {
+                sender.sendMessage(configManager.message("refund-outcome-holiday-only"));
+                return true;
+            }
+            outcome = HolidayOutcome.from(args[4]);
+            if (outcome.isEmpty()) {
+                sender.sendMessage("/lottery refund <player> holiday [period] [redstone|obsidian|gold|all]");
+                return true;
+            }
+        }
+        LotteryService.RefundResult result = lotteryService.refundAdmin(target, type.get(), periodId, outcome, sender.getName());
+        if (result.success()) {
+            sender.sendMessage(configManager.message("admin-refund-success")
+                    .replace("%player%", target.getName() == null ? args[1] : target.getName())
+                    .replace("%type%", configManager.lottery(type.get()).displayName())
+                    .replace("%period%", Long.toString(periodId))
+                    .replace("%count%", Integer.toString(result.count()))
+                    .replace("%amount%", Text.money(result.amount())));
+        } else if (result.empty()) {
+            sender.sendMessage(configManager.message("admin-refund-empty"));
+        } else {
+            sender.sendMessage(configManager.message("holiday-refund-failed"));
         }
         return true;
     }
@@ -213,14 +346,14 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
         }
         List<LedgerEntry> entries = storage.playerLedger(target.getUniqueId(), 10);
         sender.sendMessage(configManager.prefixed("&e" + (target.getName() == null ? args[1] : target.getName())
-                + " &7recent ledger"));
+                + " &7最近流水"));
         if (entries.isEmpty()) {
-            sender.sendMessage(configManager.prefixed("&7No ledger entries."));
+            sender.sendMessage(configManager.prefixed("&7暂无流水记录。"));
             return true;
         }
         for (LedgerEntry entry : entries) {
             sender.sendMessage(configManager.prefixed("&7" + entry.type().key() + " #" + entry.periodId() + " &f" + entry.action()
-                    + " &7Amount: &f" + Text.money(entry.amount()) + " &8" + entry.note()));
+                    + " &7金额: &f" + Text.money(entry.amount()) + " &8" + entry.note()));
         }
         return true;
     }
@@ -236,11 +369,11 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
         }
         LotteryService.Preview preview = lotteryService.preview(type.get());
         sender.sendMessage(configManager.prefixed("&e" + configManager.lottery(type.get()).displayName()
-                + " &7current period: &f" + preview.periodId()));
-        sender.sendMessage(configManager.prefixed("&7Next draw: &f" + Text.countdown(preview.nextDrawAt())));
-        sender.sendMessage(configManager.prefixed("&7Pool: &f" + Text.money(preview.pool())));
-        sender.sendMessage(configManager.prefixed("&7Tickets: &f" + preview.tickets() + " &7Players: &f" + preview.players()));
-        sender.sendMessage(configManager.prefixed("&7Last first winner: &f" + lotteryService.lastFirstWinner(type.get())));
+                + " &7当前期数: &f" + preview.periodId()));
+        sender.sendMessage(configManager.prefixed("&7开奖倒计时: &f" + Text.countdown(preview.nextDrawAt())));
+        sender.sendMessage(configManager.prefixed("&7当前奖池: &f" + Text.money(preview.pool())));
+        sender.sendMessage(configManager.prefixed("&7投注注数: &f" + preview.tickets() + " &7投注玩家: &f" + preview.players()));
+        sender.sendMessage(configManager.prefixed("&7上一期头奖: &f" + lotteryService.lastFirstWinner(type.get())));
         return true;
     }
 
@@ -289,7 +422,7 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (args.length < 4 || !args[1].equalsIgnoreCase("add")) {
-            sender.sendMessage("/lottery pool add <daily|weekly> <amount>");
+            sender.sendMessage("/lottery pool add <" + LotteryType.keys() + "> <amount>");
             return true;
         }
         Optional<LotteryType> type = LotteryType.from(args[2]);
@@ -301,11 +434,11 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
         try {
             amount = Double.parseDouble(args[3]);
         } catch (NumberFormatException ex) {
-            sender.sendMessage("/lottery pool add <daily|weekly> <amount>");
+            sender.sendMessage("/lottery pool add <" + LotteryType.keys() + "> <amount>");
             return true;
         }
         if (amount <= 0) {
-            sender.sendMessage("/lottery pool add <daily|weekly> <amount>");
+            sender.sendMessage("/lottery pool add <" + LotteryType.keys() + "> <amount>");
             return true;
         }
         if (!lotteryService.addPool(type.get(), amount, sender.getName())) {
@@ -319,7 +452,7 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
     }
 
     private boolean reset(CommandSender sender, String[] args) {
-        if (!sender.hasPermission("lottery.admin.pool")) {
+        if (!sender.hasPermission("lottery.admin.reset")) {
             sender.sendMessage(configManager.message("no-permission"));
             return true;
         }
@@ -350,12 +483,12 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
 
     private Optional<LotteryType> parseType(CommandSender sender, String[] args, int index) {
         if (args.length <= index) {
-            sender.sendMessage(configManager.message("invalid-type"));
+            sender.sendMessage(configManager.invalidTypeMessage());
             return Optional.empty();
         }
         Optional<LotteryType> type = LotteryType.from(args[index]);
         if (type.isEmpty()) {
-            sender.sendMessage(configManager.message("invalid-type"));
+            sender.sendMessage(configManager.invalidTypeMessage());
         }
         return type;
     }
@@ -495,55 +628,91 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return filter(List.of("open", "reload", "info", "bind", "unbind", "edit", "email", "draw",
-                    "preview", "history", "ledger", "period", "mailtest", "help", "pool", "reset"), args[0]);
+            List<String> commands = new ArrayList<>();
+            addIf(commands, sender.hasPermission("lottery.use") || sender.hasPermission("lottery.admin.open"), "open");
+            addIf(commands, sender.hasPermission("lottery.admin.reload"), "reload");
+            addIf(commands, sender.hasPermission("lottery.email.info") || sender.hasPermission("lottery.admin.email"), "info", "email");
+            addIf(commands, sender.hasPermission("lottery.email.bind"), "bind");
+            addIf(commands, sender.hasPermission("lottery.email.unbind"), "unbind");
+            addIf(commands, sender.hasPermission("lottery.admin.email"), "edit");
+            addIf(commands, sender.hasPermission("lottery.admin.draw"), "draw");
+            addIf(commands, sender.hasPermission("lottery.admin.preview"), "preview");
+            addIf(commands, sender.hasPermission("lottery.admin.history"), "history");
+            addIf(commands, sender.hasPermission("lottery.admin.refund"), "refund");
+            addIf(commands, sender.hasPermission("lottery.admin.ledger"), "ledger");
+            addIf(commands, sender.hasPermission("lottery.admin.period"), "period");
+            addIf(commands, sender.hasPermission("lottery.admin.mailtest"), "mailtest");
+            addIf(commands, sender.hasPermission("lottery.admin.help"), "help");
+            addIf(commands, sender.hasPermission("lottery.admin.pool"), "pool");
+            addIf(commands, sender.hasPermission("lottery.admin.reset"), "reset");
+            return filter(commands, args[0]);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("email")) {
-            return filter(List.of("info", "bind", "unbind", "edit"), args[1]);
+            List<String> subs = new ArrayList<>();
+            addIf(subs, sender.hasPermission("lottery.email.info") || sender.hasPermission("lottery.admin.email"), "info");
+            addIf(subs, sender.hasPermission("lottery.email.bind"), "bind");
+            addIf(subs, sender.hasPermission("lottery.email.unbind"), "unbind");
+            addIf(subs, sender.hasPermission("lottery.admin.email"), "edit");
+            return filter(subs, args[1]);
         }
-        if (args.length == 2 && args[0].equalsIgnoreCase("info")) {
+        if (args.length == 2 && args[0].equalsIgnoreCase("info") && sender.hasPermission("lottery.admin.email")) {
             return playerNames(args[1]);
         }
-        if (args.length == 3 && args[0].equalsIgnoreCase("email") && args[1].equalsIgnoreCase("info")) {
+        if (args.length == 3 && args[0].equalsIgnoreCase("email") && args[1].equalsIgnoreCase("info")
+                && sender.hasPermission("lottery.admin.email")) {
             return playerNames(args[2]);
         }
-        if (args.length == 2 && args[0].equalsIgnoreCase("draw")) {
-            return filter(List.of("daily", "weekly"), args[1]);
+        if (args.length == 2 && args[0].equalsIgnoreCase("draw") && sender.hasPermission("lottery.admin.draw")) {
+            return filter(lotteryTypeKeys(), args[1]);
         }
         if (args.length == 2 && (args[0].equalsIgnoreCase("preview")
                 || args[0].equalsIgnoreCase("period")
-                || args[0].equalsIgnoreCase("history"))) {
-            return filter(List.of("daily", "weekly"), args[1]);
+                || args[0].equalsIgnoreCase("history")) && sender.hasPermission("lottery.admin." + args[0].toLowerCase(Locale.ROOT))) {
+            return filter(lotteryTypeKeys(), args[1]);
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("refund") && sender.hasPermission("lottery.admin.refund")) {
+            return playerNames(args[1]);
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("refund") && sender.hasPermission("lottery.admin.refund")) {
+            return filter(lotteryTypeKeys(), args[2]);
+        }
+        if (args.length == 5 && args[0].equalsIgnoreCase("refund") && args[2].equalsIgnoreCase("holiday")
+                && sender.hasPermission("lottery.admin.refund")) {
+            return filter(List.of("all", "redstone", "obsidian", "gold"), args[4]);
         }
         if (args.length == 2 && (args[0].equalsIgnoreCase("ledger")
-                || args[0].equalsIgnoreCase("mailtest"))) {
+                || args[0].equalsIgnoreCase("mailtest"))
+                && sender.hasPermission(args[0].equalsIgnoreCase("ledger") ? "lottery.admin.ledger" : "lottery.admin.mailtest")) {
             return playerNames(args[1]);
         }
-        if (args.length == 2 && args[0].equalsIgnoreCase("pool")) {
+        if (args.length == 2 && args[0].equalsIgnoreCase("pool") && sender.hasPermission("lottery.admin.pool")) {
             return filter(List.of("add"), args[1]);
         }
-        if (args.length == 3 && args[0].equalsIgnoreCase("pool") && args[1].equalsIgnoreCase("add")) {
-            return filter(List.of("daily", "weekly"), args[2]);
+        if (args.length == 3 && args[0].equalsIgnoreCase("pool") && args[1].equalsIgnoreCase("add")
+                && sender.hasPermission("lottery.admin.pool")) {
+            return filter(lotteryTypeKeys(), args[2]);
         }
-        if (args.length == 2 && args[0].equalsIgnoreCase("reset")) {
-            return filter(List.of("daily", "weekly"), args[1]);
+        if (args.length == 2 && args[0].equalsIgnoreCase("reset") && sender.hasPermission("lottery.admin.reset")) {
+            return filter(lotteryTypeKeys(), args[1]);
         }
-        if (args.length == 3 && args[0].equalsIgnoreCase("reset")) {
+        if (args.length == 3 && args[0].equalsIgnoreCase("reset") && sender.hasPermission("lottery.admin.reset")) {
             return filter(List.of("confirm"), args[2]);
         }
-        if (args.length == 2 && args[0].equalsIgnoreCase("open")) {
+        if (args.length == 2 && args[0].equalsIgnoreCase("open") && sender.hasPermission("lottery.admin.open")) {
             return playerNames(args[1]);
         }
-        if (args.length == 3 && args[0].equalsIgnoreCase("email") && args[1].equalsIgnoreCase("edit")) {
+        if (args.length == 3 && args[0].equalsIgnoreCase("email") && args[1].equalsIgnoreCase("edit")
+                && sender.hasPermission("lottery.admin.email")) {
             return playerNames(args[2]);
         }
-        if (args.length == 4 && args[0].equalsIgnoreCase("email") && args[1].equalsIgnoreCase("edit")) {
+        if (args.length == 4 && args[0].equalsIgnoreCase("email") && args[1].equalsIgnoreCase("edit")
+                && sender.hasPermission("lottery.admin.email")) {
             return filter(List.of("clear"), args[3]);
         }
-        if (args.length == 2 && args[0].equalsIgnoreCase("edit")) {
+        if (args.length == 2 && args[0].equalsIgnoreCase("edit") && sender.hasPermission("lottery.admin.email")) {
             return playerNames(args[1]);
         }
-        if (args.length == 3 && args[0].equalsIgnoreCase("edit")) {
+        if (args.length == 3 && args[0].equalsIgnoreCase("edit") && sender.hasPermission("lottery.admin.email")) {
             return filter(List.of("clear"), args[2]);
         }
         return List.of();
@@ -557,6 +726,14 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
         return filter(names, prefix);
     }
 
+    private List<String> lotteryTypeKeys() {
+        List<String> keys = new ArrayList<>();
+        for (LotteryType type : LotteryType.values()) {
+            keys.add(type.key());
+        }
+        return keys;
+    }
+
     private List<String> filter(List<String> values, String prefix) {
         String lower = prefix.toLowerCase(Locale.ROOT);
         List<String> result = new ArrayList<>();
@@ -566,5 +743,12 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             }
         }
         return result;
+    }
+
+    private void addIf(List<String> values, boolean condition, String... commands) {
+        if (!condition) {
+            return;
+        }
+        values.addAll(List.of(commands));
     }
 }

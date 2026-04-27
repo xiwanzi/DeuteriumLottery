@@ -32,6 +32,10 @@ permissions:
     default: op
   lottery.admin.preview:
     default: op
+  lottery.admin.history:
+    default: op
+  lottery.admin.refund:
+    default: op
   lottery.admin.ledger:
     default: op
   lottery.admin.period:
@@ -41,4 +45,6 @@ permissions:
   lottery.admin.help:
     default: op
   lottery.admin.pool:
+    default: op
+  lottery.admin.reset:
     default: op

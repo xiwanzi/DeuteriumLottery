@@ -1,9 +1,11 @@
 package cn.xiwanzi.lottery.menu;
 
 import cn.xiwanzi.lottery.config.ConfigManager;
+import cn.xiwanzi.lottery.config.HolidaySettings;
 import cn.xiwanzi.lottery.config.LotterySettings;
 import cn.xiwanzi.lottery.config.MenuSettings;
 import cn.xiwanzi.lottery.mail.MailService;
+import cn.xiwanzi.lottery.model.HolidayOutcome;
 import cn.xiwanzi.lottery.model.LotteryType;
 import cn.xiwanzi.lottery.service.LotteryService;
 import cn.xiwanzi.lottery.storage.StorageService;
@@ -26,9 +28,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 public final class MenuManager implements Listener {
+    private static final int HOLIDAY_REFUND_SLOT = 22;
+
     private final JavaPlugin plugin;
     private final ConfigManager configManager;
     private final StorageService storage;
@@ -70,8 +75,11 @@ public final class MenuManager implements Listener {
 
     public void refreshAllOpenMenus() {
         for (Player player : Bukkit.getOnlinePlayers()) {
-            if (player.getOpenInventory().getTopInventory().getHolder() instanceof LotteryMenuHolder) {
-                refresh(player.getOpenInventory().getTopInventory(), player);
+            Inventory inventory = player.getOpenInventory().getTopInventory();
+            if (inventory.getHolder() instanceof LotteryMenuHolder) {
+                refresh(inventory, player);
+            } else if (inventory.getHolder() instanceof HolidayMenuHolder holder) {
+                refreshHoliday(inventory, holder, player);
             }
         }
     }
@@ -87,15 +95,27 @@ public final class MenuManager implements Listener {
     private void refresh(Inventory inventory, Player player) {
         MenuSettings menu = configManager.menu();
         inventory.setItem(menu.dailySlot(), lotteryItem(player, LotteryType.DAILY));
+        inventory.setItem(menu.holidaySlot(), lotteryItem(player, LotteryType.HOLIDAY));
         inventory.setItem(menu.weeklySlot(), lotteryItem(player, LotteryType.WEEKLY));
         inventory.setItem(menu.emailSlot(), emailItem(player));
     }
 
     private ItemStack lotteryItem(Player player, LotteryType type) {
+        if (type == LotteryType.HOLIDAY) {
+            return holidayMainItem(player);
+        }
         MenuSettings menu = configManager.menu();
         LotterySettings settings = configManager.lottery(type);
-        Material material = type == LotteryType.DAILY ? menu.dailyMaterial() : menu.weeklyMaterial();
-        String name = type == LotteryType.DAILY ? menu.dailyName() : menu.weeklyName();
+        Material material = switch (type) {
+            case DAILY -> menu.dailyMaterial();
+            case WEEKLY -> menu.weeklyMaterial();
+            case HOLIDAY -> menu.holidayMaterial();
+        };
+        String name = switch (type) {
+            case DAILY -> menu.dailyName();
+            case WEEKLY -> menu.weeklyName();
+            case HOLIDAY -> menu.holidayName();
+        };
         List<String> lore = new ArrayList<>();
         int current = lotteryService.currentPurchases(player, type);
         String lastFirst = lotteryService.lastFirstWinner(type);
@@ -110,6 +130,107 @@ public final class MenuManager implements Listener {
                     .replace("%last_first_winner%", lastFirst == null ? "" : lastFirst));
         }
         return namedItem(material, name, Text.color(lore));
+    }
+
+    private ItemStack holidayMainItem(Player player) {
+        MenuSettings menu = configManager.menu();
+        HolidaySettings settings = configManager.holiday();
+        List<String> amounts = settings.betAmounts().stream().map(Text::money).toList();
+        List<String> lore = new ArrayList<>();
+        lore.add("&8&m------------------------");
+        lore.add("&7类型: &f" + settings.displayName());
+        lore.add("&7状态: " + (settings.enabled() ? "&a开放中" : "&c活动未开放"));
+        lore.add(settings.enabled()
+                ? "&7开奖倒计时: &e" + Text.countdown(lotteryService.nextDrawAt(LotteryType.HOLIDAY))
+                : "&7开奖倒计时: &c活动未开放");
+        lore.add("&7当前奖池: &a" + Text.money(lotteryService.currentPool(LotteryType.HOLIDAY)));
+        lore.add("&7你的投注: &f" + lotteryService.currentPurchases(player, LotteryType.HOLIDAY) + "/" + settings.maxBetsPerPlayer());
+        lore.add("&7可选额度: &6" + String.join(" / ", amounts));
+        lore.add("&8&m------------------------");
+        lore.add(settings.enabled() ? "&e点击进入活动分池" : "&7活动开启后可参与");
+        return namedItem(menu.holidayMaterial(), menu.holidayName(), Text.color(lore));
+    }
+
+    public void openHoliday(Player player) {
+        HolidayMenuHolder holder = new HolidayMenuHolder(player.getUniqueId());
+        Inventory inventory = Bukkit.createInventory(holder, 27, configManager.holiday().displayName());
+        holder.inventory(inventory);
+        fill(inventory);
+        refreshHoliday(inventory, holder, player);
+        player.openInventory(inventory);
+    }
+
+    private void refreshHoliday(Inventory inventory, HolidayMenuHolder holder, Player player) {
+        fill(inventory);
+        holder.clearChoices();
+        HolidaySettings settings = configManager.holiday();
+        if (!settings.enabled()) {
+            inventory.setItem(13, namedItem(Material.BARRIER, "&c活动未开放", Text.color(List.of(
+                    "&7节日公益活动当前未开启。",
+                    "&7请等待服务器公告。"
+            ))));
+            return;
+        }
+        int[] slots = {9, 10, 11, 12, 13, 14, 15, 16, 17};
+        int index = 0;
+        int current = lotteryService.currentPurchases(player, LotteryType.HOLIDAY);
+        Optional<HolidayOutcome> selectedOutcome = lotteryService.holidaySelectedOutcome(player);
+        boolean refundLocked = lotteryService.holidayRefundLocked();
+        for (HolidayOutcome outcome : HolidayOutcome.values()) {
+            HolidaySettings.OutcomeSettings outcomeSettings = settings.outcome(outcome);
+            double outcomePool = lotteryService.holidayOutcomePool(outcome);
+            int outcomePlayers = lotteryService.holidayOutcomePlayers(outcome);
+            int outcomeBets = lotteryService.holidayOutcomeTickets(outcome);
+            for (double amount : settings.betAmounts()) {
+                if (index >= slots.length) {
+                    return;
+                }
+                int slot = slots[index++];
+                if (selectedOutcome.isPresent() && selectedOutcome.get() != outcome) {
+                    List<String> lockedLore = List.of(
+                            "&8&m------------------------",
+                            "&7分池: &f" + outcomeSettings.displayName(),
+                            "&7该分池金额: &a" + Text.money(outcomePool),
+                            "&7该分池玩家: &f" + outcomePlayers,
+                            "&7该分池注数: &f" + outcomeBets,
+                            "&7你的选择: &f" + settings.outcome(selectedOutcome.get()).displayName(),
+                            "&8&m------------------------",
+                            "&c本期已锁定其他分池",
+                            refundLocked ? "&7本期已进入退款锁定时间" : "&7退款后可以重新选择分池"
+                    );
+                    inventory.setItem(slot, namedItem(Material.BARRIER, "&c已锁定 - " + outcomeSettings.displayName(), Text.color(lockedLore)));
+                    continue;
+                }
+                holder.choice(slot, outcome, amount);
+                double totalPool = lotteryService.currentPool(LotteryType.HOLIDAY);
+                List<String> lore = List.of(
+                        "&8&m------------------------",
+                        "&7分池: &f" + outcomeSettings.displayName(),
+                        "&7投注额度: &6" + Text.money(amount),
+                        "&7该分池金额: &a" + Text.money(outcomePool),
+                        "&7该分池玩家: &f" + outcomePlayers,
+                        "&7该分池注数: &f" + outcomeBets,
+                        "&7总奖池: &a" + Text.money(totalPool),
+                        "&7你的投注: &f" + current + "/" + settings.maxBetsPerPlayer(),
+                        "&7命中时按同分池投注比例分配",
+                        "&8&m------------------------",
+                        "&e点击参与本分池"
+                );
+                inventory.setItem(slot, namedItem(outcomeSettings.material(), outcomeSettings.displayName()
+                        + " &7- &6" + Text.money(amount), Text.color(lore)));
+            }
+        }
+        if (current > 0) {
+            List<String> refundLore = new ArrayList<>();
+            refundLore.add("&8&m------------------------");
+            refundLore.add("&7当前投注: &f" + current + "/" + settings.maxBetsPerPlayer());
+            selectedOutcome.ifPresent(outcome -> refundLore.add("&7当前分池: &f" + settings.outcome(outcome).displayName()));
+            refundLore.add("&7开奖前 &f" + settings.refundLockBeforeMinutes() + " &7分钟锁定退款");
+            refundLore.add("&8&m------------------------");
+            refundLore.add(refundLocked ? "&c本期已进入退款锁定时间" : "&e点击退回当前活动投注");
+            inventory.setItem(HOLIDAY_REFUND_SLOT, namedItem(refundLocked ? Material.BARRIER : Material.HOPPER,
+                    refundLocked ? "&c退款已锁定" : "&a退回活动投注", Text.color(refundLore)));
+        }
     }
 
     private ItemStack emailItem(Player player) {
@@ -163,6 +284,9 @@ public final class MenuManager implements Listener {
             type = LotteryType.DAILY;
         } else if (event.getSlot() == configManager.menu().weeklySlot()) {
             type = LotteryType.WEEKLY;
+        } else if (event.getSlot() == configManager.menu().holidaySlot()) {
+            openHoliday(player);
+            return;
         }
         if (type == null) {
             return;
@@ -191,6 +315,68 @@ public final class MenuManager implements Listener {
         refresh(inventory, player);
     }
 
+    @EventHandler
+    public void onHolidayClick(InventoryClickEvent event) {
+        Inventory inventory = event.getView().getTopInventory();
+        if (!(inventory.getHolder() instanceof HolidayMenuHolder holder)) {
+            return;
+        }
+        event.setCancelled(true);
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        if (event.getClickedInventory() == null || event.getClickedInventory() != inventory) {
+            return;
+        }
+        if (event.getSlot() == HOLIDAY_REFUND_SLOT) {
+            LotteryService.RefundResult refund = lotteryService.refundHolidaySelf(player);
+            if (refund.success()) {
+                player.sendMessage(configManager.message("holiday-refund-success")
+                        .replace("%count%", Integer.toString(refund.count()))
+                        .replace("%amount%", Text.money(refund.amount())));
+            } else if (refund.empty()) {
+                player.sendMessage(configManager.message("holiday-refund-empty"));
+            } else if (refund.locked()) {
+                player.sendMessage(configManager.message("holiday-refund-locked"));
+            } else if (refund.disabled()) {
+                player.sendMessage(configManager.message("holiday-refund-disabled"));
+            } else {
+                player.sendMessage(configManager.message("holiday-refund-failed"));
+            }
+            refreshHoliday(inventory, holder, player);
+            return;
+        }
+        HolidayMenuHolder.Choice choice = holder.choice(event.getSlot());
+        if (choice == null) {
+            return;
+        }
+        if (requiresConfirmation(player, LotteryType.HOLIDAY)) {
+            player.sendMessage(configManager.message("purchase-confirm")
+                    .replace("%type%", configManager.holiday().displayName()));
+            refreshHoliday(inventory, holder, player);
+            return;
+        }
+        LotteryService.PurchaseResult result = lotteryService.buyHolidayBet(player, choice.outcome(), choice.amount());
+        if (result.success()) {
+            player.sendMessage(configManager.message("holiday-bet-success")
+                    .replace("%outcome%", configManager.holiday().outcome(choice.outcome()).displayName())
+                    .replace("%amount%", Text.money(choice.amount()))
+                    .replace("%current%", Integer.toString(result.current()))
+                    .replace("%max%", Integer.toString(result.max())));
+        } else if (result.disabled()) {
+            player.sendMessage(configManager.message("holiday-disabled"));
+        } else if (result.limit()) {
+            player.sendMessage(configManager.message("purchase-limit"));
+        } else if (result.noMoney()) {
+            player.sendMessage(configManager.message("not-enough-money"));
+        } else if (result.lockedPool()) {
+            player.sendMessage(configManager.message("holiday-pool-locked"));
+        } else {
+            player.sendMessage(configManager.message("economy-unavailable"));
+        }
+        refreshHoliday(inventory, holder, player);
+    }
+
     private boolean requiresConfirmation(Player player, LotteryType type) {
         if (!configManager.purchaseConfirm()) {
             return false;
@@ -212,7 +398,8 @@ public final class MenuManager implements Listener {
 
     @EventHandler
     public void onDrag(InventoryDragEvent event) {
-        if (event.getView().getTopInventory().getHolder() instanceof LotteryMenuHolder) {
+        if (event.getView().getTopInventory().getHolder() instanceof LotteryMenuHolder
+                || event.getView().getTopInventory().getHolder() instanceof HolidayMenuHolder) {
             event.setCancelled(true);
         }
     }

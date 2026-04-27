@@ -2,6 +2,7 @@ package cn.xiwanzi.lottery;
 
 import cn.xiwanzi.lottery.command.LotteryCommand;
 import cn.xiwanzi.lottery.config.ConfigManager;
+import cn.xiwanzi.lottery.config.ConfigMigrator;
 import cn.xiwanzi.lottery.economy.EconomyService;
 import cn.xiwanzi.lottery.mail.MailService;
 import cn.xiwanzi.lottery.menu.MenuManager;
@@ -22,6 +23,8 @@ public final class LotteryPlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        ConfigMigrator.migrate(this);
+        reloadConfig();
 
         configManager = new ConfigManager(this);
         configManager.reload();
@@ -70,11 +73,16 @@ public final class LotteryPlugin extends JavaPlugin {
     }
 
     public void reloadLottery() {
+        boolean migrated = ConfigMigrator.migrate(this);
         reloadConfig();
         configManager.reload();
         mailService.reload();
         economyService.ensureAccount(configManager.systemAccount());
-        lotteryService.reloadSchedules();
+        if (migrated) {
+            lotteryService.ensurePeriods();
+        } else {
+            lotteryService.reloadSchedules();
+        }
         if (menuManager != null) {
             menuManager.refreshAllOpenMenus();
         }
