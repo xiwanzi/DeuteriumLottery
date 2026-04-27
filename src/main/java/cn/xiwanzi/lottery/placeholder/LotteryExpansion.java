@@ -48,6 +48,10 @@ public final class LotteryExpansion extends PlaceholderExpansion {
             case "weekly_tickets" -> Integer.toString(lotteryService.currentTickets(LotteryType.WEEKLY));
             case "weekly_next_draw" -> Text.countdown(lotteryService.nextDrawAt(LotteryType.WEEKLY));
             case "weekly_last_first_winner" -> lotteryService.lastFirstWinner(LotteryType.WEEKLY);
+            case "holiday_pool" -> Text.money(lotteryService.currentPool(LotteryType.HOLIDAY));
+            case "holiday_tickets" -> Integer.toString(lotteryService.currentTickets(LotteryType.HOLIDAY));
+            case "holiday_next_draw" -> Text.countdown(lotteryService.nextDrawAt(LotteryType.HOLIDAY));
+            case "holiday_last_first_winner" -> lotteryService.lastFirstWinner(LotteryType.HOLIDAY);
             default -> null;
         };
     }

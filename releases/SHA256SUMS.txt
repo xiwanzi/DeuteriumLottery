@@ -1,0 +1,9 @@
+﻿008e54a3ce17a23fe564a1a3033c74e58ca0c4d6906938283bb3bda03fab9cd2  .\releases\1.0.0\lottery-1.0.0-SNAPSHOT.jar
+008e54a3ce17a23fe564a1a3033c74e58ca0c4d6906938283bb3bda03fab9cd2  .\releases\1.0.0\lottery-1.0.0-SNAPSHOT-shaded.jar
+6bf3f4985bf410cb8391a9a03c965f16bbd3d933aa416a228bb6aa480b87c3be  .\releases\1.0.0\original-lottery-1.0.0-SNAPSHOT.jar
+98e1c0e72bfd5c3e8aee4c61b192fad4fb156b12b9cb24065b1bfe9eee8bc8d8  .\releases\1.0.1\lottery-1.0.1-SNAPSHOT.jar
+98e1c0e72bfd5c3e8aee4c61b192fad4fb156b12b9cb24065b1bfe9eee8bc8d8  .\releases\1.0.1\lottery-1.0.1-SNAPSHOT-shaded.jar
+708d89cb4df73753f635a6d68f523773f49b55597c83740af21498add7bc1632  .\releases\1.0.1\original-lottery-1.0.1-SNAPSHOT.jar
+b7b263940d5f457062550b4ce325e4aa9d55e13208a75cf31c5a27adfaa94716  .\releases\1.1.0-test\lottery-1.1.0-SNAPSHOT.jar
+b7b263940d5f457062550b4ce325e4aa9d55e13208a75cf31c5a27adfaa94716  .\releases\1.1.0-test\lottery-1.1.0-SNAPSHOT-shaded.jar
+3e80e7c0b8a1a61a2a6070facd5891174fe234534f38caf3d36391e6cafca6f7  .\releases\1.1.0-test\original-lottery-1.1.0-SNAPSHOT.jar

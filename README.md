@@ -1,12 +1,12 @@
 # lottery
 
-`lottery` 是一个面向 Minecraft 1.20.1 Bukkit/Spigot 服务端的彩票插件，作者 `xiwanzi`。插件提供每日彩票、每周彩票、箱子式 GUI、配置热重载、Vault 经济对接、SQLite 存储、PlaceholderAPI 支持和 SMTP 中奖邮件通知。
+`lottery` 是一个面向 Minecraft 1.20.1 Bukkit/Spigot 服务端的彩票插件，作者 `xiwanzi`。插件提供每日彩票、每周彩票、节日公益活动、箱子式 GUI、配置热重载、Vault 经济对接、SQLite 存储、PlaceholderAPI 支持和 SMTP 中奖邮件通知。
 
 本插件以轻量、可配置、可运营为目标，适合中小型服务器做公益性活动、赛事奖金池或节日玩法。
 
 ## 功能
 
-- 每日彩票与每周彩票
+- 每日彩票、每周彩票与节日公益活动
 - 每人每期限购
 - 可配置单注价格、最低开奖奖池、奖金池比例、奖项人数和奖金比例
 - 固定每日、固定每周、间隔开奖三种调度模式
@@ -38,7 +38,7 @@ mvn clean package
 构建完成后使用：
 
 ```text
-target/lottery-1.0.1-SNAPSHOT.jar
+target/lottery-1.1.0-SNAPSHOT.jar
 ```
 
 不要使用 `original-*.jar`，它不包含运行所需的 shaded 依赖。
@@ -78,12 +78,12 @@ target/lottery-1.0.1-SNAPSHOT.jar
 | `/lottery info <玩家>` | 查询玩家通知邮箱 | `lottery.admin.email` |
 | `/lottery edit <玩家> <邮箱或QQ号>` | 修改玩家通知邮箱 | `lottery.admin.email` |
 | `/lottery edit <玩家> clear` | 清除玩家通知邮箱 | `lottery.admin.email` |
-| `/lottery draw <daily\|weekly>` | 手动开奖 | `lottery.admin.draw` |
-| `/lottery preview <daily\|weekly>` | 预览当前期状态 | `lottery.admin.preview` |
-| `/lottery period <daily\|weekly>` | 查看当前期信息 | `lottery.admin.period` |
-| `/lottery history [daily\|weekly]` | 查看上一期开奖结果 | 当前无权限检查 |
+| `/lottery draw <daily\|weekly\|holiday>` | 手动开奖 | `lottery.admin.draw` |
+| `/lottery preview <daily\|weekly\|holiday>` | 预览当前期状态 | `lottery.admin.preview` |
+| `/lottery period <daily\|weekly\|holiday>` | 查看当前期信息 | `lottery.admin.period` |
+| `/lottery history [daily\|weekly\|holiday]` | 查看上一期开奖结果 | 当前无权限检查 |
 | `/lottery ledger <玩家>` | 查看玩家最近彩票流水 | `lottery.admin.ledger` |
-| `/lottery pool add <daily\|weekly> <金额>` | 给当前期增加额外奖池 | `lottery.admin.pool` |
+| `/lottery pool add <daily\|weekly\|holiday> <金额>` | 给当前期增加额外奖池 | `lottery.admin.pool` |
 | `/lottery mailtest <玩家>` | 发送测试邮件 | `lottery.admin.mailtest` |
 | `/lottery help` | 查看管理员帮助 | `lottery.admin.help` |
 
@@ -92,9 +92,13 @@ target/lottery-1.0.1-SNAPSHOT.jar
 核心经济账户：
 
 ```yaml
+config-version: 2
+
 settings:
   system-account: "lottery"
 ```
+
+`config-version` 用于后续增量升级。旧配置升级时，插件只追加缺失的新配置段落，不会整份覆盖已有生产配置。
 
 玩家购票后，资金会进入该账户。派奖和退款也会从该账户扣除。
 

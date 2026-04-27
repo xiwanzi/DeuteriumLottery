@@ -143,12 +143,12 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (args.length < 2) {
-            sender.sendMessage("/lottery draw <daily|weekly>");
+            sender.sendMessage("/lottery draw <" + LotteryType.keys() + ">");
             return true;
         }
         Optional<LotteryType> type = LotteryType.from(args[1]);
         if (type.isEmpty()) {
-            sender.sendMessage(configManager.message("invalid-type"));
+            sender.sendMessage(configManager.invalidTypeMessage());
             return true;
         }
         lotteryService.drawNow(type.get());
@@ -289,7 +289,7 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (args.length < 4 || !args[1].equalsIgnoreCase("add")) {
-            sender.sendMessage("/lottery pool add <daily|weekly> <amount>");
+            sender.sendMessage("/lottery pool add <" + LotteryType.keys() + "> <amount>");
             return true;
         }
         Optional<LotteryType> type = LotteryType.from(args[2]);
@@ -301,11 +301,11 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
         try {
             amount = Double.parseDouble(args[3]);
         } catch (NumberFormatException ex) {
-            sender.sendMessage("/lottery pool add <daily|weekly> <amount>");
+            sender.sendMessage("/lottery pool add <" + LotteryType.keys() + "> <amount>");
             return true;
         }
         if (amount <= 0) {
-            sender.sendMessage("/lottery pool add <daily|weekly> <amount>");
+            sender.sendMessage("/lottery pool add <" + LotteryType.keys() + "> <amount>");
             return true;
         }
         if (!lotteryService.addPool(type.get(), amount, sender.getName())) {
@@ -350,12 +350,12 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
 
     private Optional<LotteryType> parseType(CommandSender sender, String[] args, int index) {
         if (args.length <= index) {
-            sender.sendMessage(configManager.message("invalid-type"));
+            sender.sendMessage(configManager.invalidTypeMessage());
             return Optional.empty();
         }
         Optional<LotteryType> type = LotteryType.from(args[index]);
         if (type.isEmpty()) {
-            sender.sendMessage(configManager.message("invalid-type"));
+            sender.sendMessage(configManager.invalidTypeMessage());
         }
         return type;
     }
@@ -508,12 +508,12 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             return playerNames(args[2]);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("draw")) {
-            return filter(List.of("daily", "weekly"), args[1]);
+            return filter(lotteryTypeKeys(), args[1]);
         }
         if (args.length == 2 && (args[0].equalsIgnoreCase("preview")
                 || args[0].equalsIgnoreCase("period")
                 || args[0].equalsIgnoreCase("history"))) {
-            return filter(List.of("daily", "weekly"), args[1]);
+            return filter(lotteryTypeKeys(), args[1]);
         }
         if (args.length == 2 && (args[0].equalsIgnoreCase("ledger")
                 || args[0].equalsIgnoreCase("mailtest"))) {
@@ -523,10 +523,10 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             return filter(List.of("add"), args[1]);
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("pool") && args[1].equalsIgnoreCase("add")) {
-            return filter(List.of("daily", "weekly"), args[2]);
+            return filter(lotteryTypeKeys(), args[2]);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("reset")) {
-            return filter(List.of("daily", "weekly"), args[1]);
+            return filter(lotteryTypeKeys(), args[1]);
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("reset")) {
             return filter(List.of("confirm"), args[2]);
@@ -555,6 +555,14 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             names.add(player.getName());
         }
         return filter(names, prefix);
+    }
+
+    private List<String> lotteryTypeKeys() {
+        List<String> keys = new ArrayList<>();
+        for (LotteryType type : LotteryType.values()) {
+            keys.add(type.key());
+        }
+        return keys;
     }
 
     private List<String> filter(List<String> values, String prefix) {

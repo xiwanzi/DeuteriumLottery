@@ -1,6 +1,8 @@
 package cn.xiwanzi.lottery.storage;
 
 import cn.xiwanzi.lottery.model.Award;
+import cn.xiwanzi.lottery.model.HolidayBet;
+import cn.xiwanzi.lottery.model.HolidayOutcome;
 import cn.xiwanzi.lottery.model.LedgerEntry;
 import cn.xiwanzi.lottery.model.LotteryType;
 import cn.xiwanzi.lottery.model.PeriodState;
@@ -58,6 +60,17 @@ public final class StorageService {
                         )
                         """);
                 statement.executeUpdate("""
+                        CREATE TABLE IF NOT EXISTS holiday_bets (
+                          id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          period_id INTEGER NOT NULL,
+                          outcome TEXT NOT NULL,
+                          player_uuid TEXT NOT NULL,
+                          player_name TEXT NOT NULL,
+                          amount REAL NOT NULL,
+                          created_at INTEGER NOT NULL
+                        )
+                        """);
+                statement.executeUpdate("""
                         CREATE TABLE IF NOT EXISTS awards (
                           type TEXT NOT NULL,
                           period_id INTEGER NOT NULL,
@@ -92,6 +105,8 @@ public final class StorageService {
                         """);
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_tickets_period ON tickets(type, period_id)");
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_tickets_player ON tickets(type, period_id, player_uuid)");
+                statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_holiday_bets_period ON holiday_bets(period_id)");
+                statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_holiday_bets_player ON holiday_bets(period_id, player_uuid)");
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_awards_period ON awards(type, period_id)");
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_ledger_period_action ON ledger(type, period_id, action)");
             }
@@ -186,6 +201,7 @@ public final class StorageService {
         try {
             connection.setAutoCommit(false);
             try (PreparedStatement deleteTickets = connection.prepareStatement("DELETE FROM tickets WHERE type = ?");
+                 PreparedStatement deleteHolidayBets = connection.prepareStatement("DELETE FROM holiday_bets");
                  PreparedStatement deleteAwards = connection.prepareStatement("DELETE FROM awards WHERE type = ?");
                  PreparedStatement deleteLedger = connection.prepareStatement("DELETE FROM ledger WHERE type = ?");
                  PreparedStatement deletePeriod = connection.prepareStatement("DELETE FROM periods WHERE type = ?");
@@ -195,6 +211,10 @@ public final class StorageService {
                          "INSERT INTO ledger(type, period_id, action, player_uuid, player_name, amount, created_at, note) VALUES(?, 1, 'RESET', ?, ?, ?, ?, ?)")) {
                 deleteTickets.setString(1, type.key());
                 deleteTickets.executeUpdate();
+
+                if (type == LotteryType.HOLIDAY) {
+                    deleteHolidayBets.executeUpdate();
+                }
 
                 deleteAwards.setString(1, type.key());
                 deleteAwards.executeUpdate();
@@ -291,6 +311,48 @@ public final class StorageService {
         }
     }
 
+    public synchronized void addPurchasedHolidayBet(long periodId, HolidayOutcome outcome, UUID playerUuid, String playerName, double amount) {
+        try {
+            connection.setAutoCommit(false);
+            try (PreparedStatement bet = connection.prepareStatement(
+                    "INSERT INTO holiday_bets(period_id, outcome, player_uuid, player_name, amount, created_at) VALUES(?, ?, ?, ?, ?, ?)");
+                 PreparedStatement ledger = connection.prepareStatement(
+                         "INSERT INTO ledger(type, period_id, action, player_uuid, player_name, amount, created_at, note) VALUES(?, ?, ?, ?, ?, ?, ?, ?)")) {
+                bet.setLong(1, periodId);
+                bet.setString(2, outcome.key());
+                bet.setString(3, playerUuid.toString());
+                bet.setString(4, playerName);
+                bet.setDouble(5, amount);
+                bet.setLong(6, System.currentTimeMillis());
+                bet.executeUpdate();
+
+                ledger.setString(1, LotteryType.HOLIDAY.key());
+                ledger.setLong(2, periodId);
+                ledger.setString(3, "HOLIDAY_BET");
+                ledger.setString(4, playerUuid.toString());
+                ledger.setString(5, playerName);
+                ledger.setDouble(6, amount);
+                ledger.setLong(7, System.currentTimeMillis());
+                ledger.setString(8, outcome.key());
+                ledger.executeUpdate();
+            }
+            connection.commit();
+        } catch (SQLException ex) {
+            try {
+                connection.rollback();
+            } catch (SQLException rollbackEx) {
+                plugin.getLogger().warning("Failed to roll back holiday bet transaction: " + rollbackEx.getMessage());
+            }
+            throw new IllegalStateException("Failed to add holiday bet.", ex);
+        } finally {
+            try {
+                connection.setAutoCommit(true);
+            } catch (SQLException ex) {
+                plugin.getLogger().warning("Failed to restore auto commit: " + ex.getMessage());
+            }
+        }
+    }
+
     public synchronized int countPlayerTickets(LotteryType type, long periodId, UUID playerUuid) {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT COUNT(*) FROM tickets WHERE type = ? AND period_id = ? AND player_uuid = ?")) {
@@ -315,6 +377,31 @@ public final class StorageService {
             }
         } catch (SQLException ex) {
             throw new IllegalStateException("Failed to count tickets.", ex);
+        }
+    }
+
+    public synchronized int countHolidayPlayerBets(long periodId, UUID playerUuid) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COUNT(*) FROM holiday_bets WHERE period_id = ? AND player_uuid = ?")) {
+            statement.setLong(1, periodId);
+            statement.setString(2, playerUuid.toString());
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? result.getInt(1) : 0;
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Failed to count holiday player bets.", ex);
+        }
+    }
+
+    public synchronized int countHolidayBets(long periodId) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COUNT(*) FROM holiday_bets WHERE period_id = ?")) {
+            statement.setLong(1, periodId);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? result.getInt(1) : 0;
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Failed to count holiday bets.", ex);
         }
     }
 
@@ -355,6 +442,58 @@ public final class StorageService {
         }
     }
 
+    public synchronized double holidayBetPool(long periodId) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COALESCE(SUM(amount), 0) FROM holiday_bets WHERE period_id = ?")) {
+            statement.setLong(1, periodId);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? result.getDouble(1) : 0;
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Failed to sum holiday pool.", ex);
+        }
+    }
+
+    public synchronized double holidayBetPool(long periodId, HolidayOutcome outcome) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COALESCE(SUM(amount), 0) FROM holiday_bets WHERE period_id = ? AND outcome = ?")) {
+            statement.setLong(1, periodId);
+            statement.setString(2, outcome.key());
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? result.getDouble(1) : 0;
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Failed to sum holiday outcome pool.", ex);
+        }
+    }
+
+    public synchronized List<HolidayBet> holidayBets(long periodId) {
+        List<HolidayBet> bets = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT id, outcome, player_uuid, player_name, amount FROM holiday_bets WHERE period_id = ? ORDER BY id ASC")) {
+            statement.setLong(1, periodId);
+            try (ResultSet result = statement.executeQuery()) {
+                while (result.next()) {
+                    Optional<HolidayOutcome> outcome = HolidayOutcome.from(result.getString("outcome"));
+                    if (outcome.isEmpty()) {
+                        continue;
+                    }
+                    bets.add(new HolidayBet(
+                            result.getLong("id"),
+                            periodId,
+                            outcome.get(),
+                            UUID.fromString(result.getString("player_uuid")),
+                            result.getString("player_name"),
+                            result.getDouble("amount")
+                    ));
+                }
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Failed to read holiday bets.", ex);
+        }
+        return bets;
+    }
+
     public synchronized void recordLedger(LotteryType type, long periodId, String action, UUID playerUuid, String playerName, double amount, String note) {
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO ledger(type, period_id, action, player_uuid, player_name, amount, created_at, note) VALUES(?, ?, ?, ?, ?, ?, ?, ?)")) {
@@ -391,6 +530,20 @@ public final class StorageService {
             }
         } catch (SQLException ex) {
             throw new IllegalStateException("Failed to read ledger.", ex);
+        }
+    }
+
+    public synchronized Optional<String> firstLedgerNote(LotteryType type, long periodId, String action) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT note FROM ledger WHERE type = ? AND period_id = ? AND action = ? ORDER BY id ASC LIMIT 1")) {
+            statement.setString(1, type.key());
+            statement.setLong(2, periodId);
+            statement.setString(3, action);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? Optional.of(result.getString("note")) : Optional.empty();
+            }
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Failed to read ledger note.", ex);
         }
     }
 

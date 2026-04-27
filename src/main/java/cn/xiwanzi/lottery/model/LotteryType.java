@@ -5,7 +5,8 @@ import java.util.Optional;
 
 public enum LotteryType {
     DAILY("daily"),
-    WEEKLY("weekly");
+    WEEKLY("weekly"),
+    HOLIDAY("holiday");
 
     private final String key;
 
@@ -28,5 +29,9 @@ public enum LotteryType {
             }
         }
         return Optional.empty();
+    }
+
+    public static String keys() {
+        return "daily|weekly|holiday";
     }
 }

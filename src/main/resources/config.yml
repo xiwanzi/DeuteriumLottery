@@ -2,6 +2,9 @@
 # 插件名: lottery
 # 作者: xiwanzi
 
+# 配置迭代版本。插件会用它判断是否需要追加新版本配置，不会覆盖已有生产配置。
+config-version: 2
+
 settings:
   # 彩票资金账户。玩家购票时，100% 付款会先进入这个账户。
   # 退款和派奖时，也会先从这个账户扣除，再发给玩家。
@@ -84,6 +87,57 @@ weekly:
     third:
       winners: 2
       pool-percent: 15
+
+holiday:
+  display-name: "&6节日公益活动"
+  # 是否开放活动。false 时菜单入口仍会展示，但玩家不能参与投注。
+  enabled: false
+
+  # 每个玩家每期最多可以参与几次分池。
+  max-bets-per-player: 5
+
+  # 可选投注额度。玩家在活动菜单里选择一个主题和一个额度参与。
+  bet-amounts:
+    - 100
+    - 300
+    - 600
+
+  # 当前可分配给玩家的奖池低于该金额时，本期不会开奖并自动退款。
+  min-total-pool: 1500
+
+  # 进入玩家奖励池的比例。剩余部分会留在 settings.system-account 作为公益活动收益。
+  reward-pool-percent: 90
+  house-pool-percent: 10
+
+  schedules:
+    fixed-daily:
+      enabled: true
+      time: "22:00"
+    fixed-weekly:
+      enabled: false
+      day: "SUNDAY"
+      time: "22:00"
+    interval:
+      enabled: false
+      minutes: 10
+
+  # 节日公益活动采用玩家之间分池竞争：
+  # 玩家选择红石/黑曜石/金块之一参与，开奖抽出一个结果。
+  # 命中的玩家按自己在命中分池里的投注占比瓜分 reward-pool-percent 对应的奖池。
+  # 如果抽中的结果无人命中，奖励池会滚入下一期，不会凭空增发货币。
+  outcomes:
+    redstone:
+      display-name: "&c红石"
+      material: "REDSTONE_BLOCK"
+      chance-percent: 45
+    obsidian:
+      display-name: "&8黑曜石"
+      material: "OBSIDIAN"
+      chance-percent: 45
+    gold:
+      display-name: "&6金块"
+      material: "GOLD_BLOCK"
+      chance-percent: 10
 
 mail:
   enabled: false
@@ -169,13 +223,15 @@ messages:
   email-edited: "&a已修改 &e%player% &a的通知邮箱: &e%email%"
   email-cleared: "&a已清除 &e%player% &a的通知邮箱。"
   draw-started: "&a已手动开奖: &e%type%"
-  invalid-type: "&c彩票类型只能是 daily 或 weekly。"
+  invalid-type: "&c彩票类型只能是 daily、weekly 或 holiday。"
   purchase-confirm: "&e再次点击确认购买 &f%type% &e彩票。"
   mailtest-sent: "&a测试邮件已尝试发送给 &e%player%&a。"
   mailtest-no-email: "&e%player% &c没有绑定通知邮箱。"
   mailtest-disabled: "&c邮件通知当前未启用。"
   pool-add-success: "&a已为 &e%type% &a当前期增加奖池: &e%amount%"
   pool-add-failed: "&c增加奖池失败，请检查彩票资金账户是否可用。"
+  holiday-disabled: "&c节日公益活动当前未开放。"
+  holiday-bet-success: "&a已参与 &e%outcome% &a分池，额度 &e%amount% &7(%current%/%max%)"
   reset-denied: "&c你不是该高危操作的授权执行者。"
   reset-confirm: "&c高危操作：将清空 &e%type% &c的插件奖池记录并重置到第 1 期。&7请再次输入: &f%command%"
   reset-success: "&a已重置 &e%type% &a到第 1 期，清空显示奖池: &e%amount%"
@@ -189,12 +245,12 @@ admin-help:
   - "&e/lottery unbind &7- 解绑自己的通知邮箱"
   - "&e/lottery open <玩家> &7- 给指定玩家打开彩票菜单"
   - "&e/lottery reload &7- 重载配置"
-  - "&e/lottery draw <daily|weekly> &7- 手动开奖"
-  - "&e/lottery preview <daily|weekly> &7- 预览当前期开奖状态"
-  - "&e/lottery period <daily|weekly> &7- 查看当前期状态"
-  - "&e/lottery pool add <daily|weekly> <金额> &7- 给当前期增加额外奖池"
-  - "&e/lottery reset <daily|weekly> confirm &7- 高危：清空记录并重置到第 1 期"
-  - "&e/lottery history [daily|weekly] &7- 查看上一期开奖结果"
+  - "&e/lottery draw <daily|weekly|holiday> &7- 手动开奖"
+  - "&e/lottery preview <daily|weekly|holiday> &7- 预览当前期开奖状态"
+  - "&e/lottery period <daily|weekly|holiday> &7- 查看当前期状态"
+  - "&e/lottery pool add <daily|weekly|holiday> <金额> &7- 给当前期增加额外奖池"
+  - "&e/lottery reset <daily|weekly|holiday> confirm &7- 高危：清空记录并重置到第 1 期"
+  - "&e/lottery history [daily|weekly|holiday] &7- 查看上一期开奖结果"
   - "&e/lottery ledger <玩家> &7- 查看玩家最近流水"
   - "&e/lottery mailtest <玩家> &7- 发送测试邮件"
   - "&e/lottery edit <玩家> <邮箱|QQ|clear> &7- 修改通知邮箱"
@@ -217,6 +273,11 @@ menu:
     slot: 15
     material: "CLOCK"
     name: "&b&l每周大奖池"
+
+  holiday:
+    slot: 13
+    material: "EMERALD"
+    name: "&6&l节日公益活动"
 
   email:
     slot: 22
