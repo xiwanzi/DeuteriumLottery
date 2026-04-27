@@ -23,6 +23,7 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
@@ -81,7 +82,7 @@ public final class LotteryService {
 
     public synchronized PurchaseResult buyTicket(Player player, LotteryType type) {
         if (type == LotteryType.HOLIDAY) {
-            return PurchaseResult.economyError();
+            return PurchaseResult.economyErrorResult();
         }
         LotterySettings settings = configManager.lottery(type);
         PeriodState period = storage.getOrCreatePeriod(type, configManager.nextDrawAt(type, System.currentTimeMillis()));
@@ -93,7 +94,7 @@ public final class LotteryService {
             return PurchaseResult.noMoney(current, settings.maxPurchasesPerPlayer());
         }
         if (!economy.transferPlayerToAccount(player, configManager.systemAccount(), settings.price())) {
-            return PurchaseResult.economyError(current, settings.maxPurchasesPerPlayer());
+            return PurchaseResult.economyErrorResult(current, settings.maxPurchasesPerPlayer());
         }
 
         try {
@@ -108,11 +109,11 @@ public final class LotteryService {
     public synchronized PurchaseResult buyHolidayBet(Player player, HolidayOutcome outcome, double amount) {
         HolidaySettings settings = configManager.holiday();
         if (!settings.enabled()) {
-            return PurchaseResult.disabled();
+            return PurchaseResult.disabledResult();
         }
         boolean allowedAmount = settings.betAmounts().stream().anyMatch(configured -> Math.abs(configured - amount) < 0.0001);
         if (!allowedAmount) {
-            return PurchaseResult.invalid();
+            return PurchaseResult.invalidResult();
         }
         PeriodState period = storage.getOrCreatePeriod(LotteryType.HOLIDAY, configManager.nextDrawAt(LotteryType.HOLIDAY, System.currentTimeMillis()));
         int current = storage.countHolidayPlayerBets(period.periodId(), player.getUniqueId());
@@ -123,7 +124,7 @@ public final class LotteryService {
             return PurchaseResult.noMoney(current, settings.maxBetsPerPlayer());
         }
         if (!economy.transferPlayerToAccount(player, configManager.systemAccount(), amount)) {
-            return PurchaseResult.economyError();
+            return PurchaseResult.economyErrorResult();
         }
         try {
             storage.addPurchasedHolidayBet(period.periodId(), outcome, player.getUniqueId(), player.getName(), amount);
@@ -167,6 +168,9 @@ public final class LotteryService {
     private synchronized void checkDraws() {
         long now = System.currentTimeMillis();
         for (LotteryType type : LotteryType.values()) {
+            if (type == LotteryType.HOLIDAY && !configManager.holiday().enabled()) {
+                continue;
+            }
             Optional<PeriodState> period = storage.getPeriod(type);
             period.ifPresent(state -> sendReminders(type, state, now));
             if (period.isPresent() && period.get().nextDrawAt() > 0 && now >= period.get().nextDrawAt()) {
@@ -406,8 +410,8 @@ public final class LotteryService {
         }
 
         double houseAmount = totalPool * settings.housePoolPercent() / 100.0;
-        if (houseAmount > 0 && !storage.hasLedger(LotteryType.HOLIDAY, period.periodId(), "HOUSE_RETAIN", null, "holiday house share")) {
-            storage.recordLedger(LotteryType.HOLIDAY, period.periodId(), "HOUSE_RETAIN", null, configManager.systemAccount(), houseAmount, "holiday house share");
+        if (houseAmount > 0 && !storage.hasLedger(LotteryType.HOLIDAY, period.periodId(), "HOLIDAY_FEE", null, "holiday fee")) {
+            storage.recordLedger(LotteryType.HOLIDAY, period.periodId(), "HOLIDAY_FEE", null, configManager.systemAccount(), houseAmount, "holiday fee");
         }
 
         HolidayOutcome outcome = storedOrDrawHolidayOutcome(period.periodId(), settings);
@@ -415,6 +419,10 @@ public final class LotteryService {
                 .filter(bet -> bet.outcome() == outcome)
                 .toList();
         if (winningBets.isEmpty()) {
+            if (!storage.hasLedger(LotteryType.HOLIDAY, period.periodId(), "HOLIDAY_ROLLOVER", null, outcome.key())) {
+                storage.recordLedger(LotteryType.HOLIDAY, period.periodId(), "HOLIDAY_ROLLOVER", null,
+                        configManager.systemAccount(), effectivePool, outcome.key());
+            }
             broadcastHolidayRollover(period.periodId(), settings, outcome, effectivePool);
             storage.advancePeriod(LotteryType.HOLIDAY, nextDrawAt, effectivePool, period.lastFirstWinner());
             plugin.getLogger().info("holiday period " + period.periodId() + " drawn with no winners. Outcome: "
@@ -485,18 +493,18 @@ public final class LotteryService {
         boolean success = true;
         for (HolidayAward award : awards) {
             String note = "holiday-" + outcome.key() + "-" + award.playerUuid();
-            if (storage.hasLedger(LotteryType.HOLIDAY, periodId, "HOLIDAY_PRIZE", award.playerUuid(), note)) {
+            if (storage.hasLedger(LotteryType.HOLIDAY, periodId, "HOLIDAY_PAYOUT", award.playerUuid(), note)) {
                 continue;
             }
             OfflinePlayer player = Bukkit.getOfflinePlayer(award.playerUuid());
             if (!economy.transferAccountToPlayer(configManager.systemAccount(), player, award.amount())) {
                 plugin.getLogger().warning("Failed to pay holiday prize to " + award.playerName() + " amount " + Text.money(award.amount()));
-                storage.recordLedger(LotteryType.HOLIDAY, periodId, "HOLIDAY_PRIZE_FAILED", award.playerUuid(),
+                storage.recordLedger(LotteryType.HOLIDAY, periodId, "HOLIDAY_PAYOUT_FAILED", award.playerUuid(),
                         award.playerName(), award.amount(), note);
                 success = false;
                 continue;
             }
-            storage.recordLedger(LotteryType.HOLIDAY, periodId, "HOLIDAY_PRIZE", award.playerUuid(), award.playerName(), award.amount(), note);
+            storage.recordLedger(LotteryType.HOLIDAY, periodId, "HOLIDAY_PAYOUT", award.playerUuid(), award.playerName(), award.amount(), note);
             mail.sendWinMail(award.playerUuid(), award.playerName(), settings.displayName(),
                     settings.outcome(outcome).displayName(), award.amount());
         }
@@ -715,19 +723,19 @@ public final class LotteryService {
             return new PurchaseResult(false, false, true, false, false, false, current, max);
         }
 
-        public static PurchaseResult economyError() {
+        public static PurchaseResult economyErrorResult() {
             return new PurchaseResult(false, false, false, true, false, false, 0, 0);
         }
 
-        public static PurchaseResult economyError(int current, int max) {
+        public static PurchaseResult economyErrorResult(int current, int max) {
             return new PurchaseResult(false, false, false, true, false, false, current, max);
         }
 
-        public static PurchaseResult disabled() {
+        public static PurchaseResult disabledResult() {
             return new PurchaseResult(false, false, false, false, true, false, 0, 0);
         }
 
-        public static PurchaseResult invalid() {
+        public static PurchaseResult invalidResult() {
             return new PurchaseResult(false, false, false, false, false, true, 0, 0);
         }
     }

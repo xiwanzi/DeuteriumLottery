@@ -75,11 +75,15 @@ public final class ConfigMigrator {
     }
 
     private static final String HOLIDAY_CONFIG = """
-# 节日公益活动。该玩法更偏活动竞争，默认单注更高、限购更多、一等奖占比更大。
+# Added by lottery 1.1.0. The event is disabled by default and does not modify daily/weekly data.
 holiday:
   display-name: "&6节日公益活动"
-  price: 200
-  max-purchases-per-player: 5
+  enabled: false
+  max-bets-per-player: 5
+  bet-amounts:
+    - 100
+    - 300
+    - 600
   min-total-pool: 1500
   reward-pool-percent: 90
   house-pool-percent: 10
@@ -96,20 +100,23 @@ holiday:
       enabled: false
       minutes: 10
 
-  rewards:
-    first:
-      winners: 1
-      pool-percent: 70
-    second:
-      winners: 1
-      pool-percent: 20
-    third:
-      winners: 3
-      pool-percent: 10
+  outcomes:
+    redstone:
+      display-name: "&c红石"
+      material: "REDSTONE_BLOCK"
+      chance-percent: 45
+    obsidian:
+      display-name: "&8黑曜石"
+      material: "OBSIDIAN"
+      chance-percent: 45
+    gold:
+      display-name: "&6金块"
+      material: "GOLD_BLOCK"
+      chance-percent: 10
 """;
 
     private static final String HOLIDAY_MENU_CONFIG = """
-# 旧配置增量升级专用：如果原 menu 段落中没有 holiday，本段会作为节日彩票菜单入口配置。
+# Compatibility menu entry for existing configs that do not have menu.holiday.
 holiday-menu:
   slot: 13
   material: "EMERALD"

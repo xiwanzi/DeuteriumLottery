@@ -4,6 +4,7 @@ import cn.xiwanzi.lottery.config.ConfigManager;
 import cn.xiwanzi.lottery.mail.MailService;
 import cn.xiwanzi.lottery.menu.MenuManager;
 import cn.xiwanzi.lottery.model.Award;
+import cn.xiwanzi.lottery.model.HolidayOutcome;
 import cn.xiwanzi.lottery.model.LedgerEntry;
 import cn.xiwanzi.lottery.model.LotteryType;
 import cn.xiwanzi.lottery.model.PeriodState;
@@ -182,6 +183,34 @@ public final class LotteryCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         long historyPeriod = period.get().periodId() - 1;
+        if (type == LotteryType.HOLIDAY) {
+            List<LedgerEntry> entries = storage.periodLedger(type, historyPeriod);
+            Optional<String> outcome = entries.stream()
+                    .filter(entry -> entry.action().equals("HOLIDAY_OUTCOME"))
+                    .map(LedgerEntry::note)
+                    .findFirst();
+            List<LedgerEntry> payouts = entries.stream()
+                    .filter(entry -> entry.action().equals("HOLIDAY_PAYOUT"))
+                    .toList();
+            sender.sendMessage(configManager.prefixed("&e" + configManager.lottery(type).displayName()
+                    + " &7period &f" + historyPeriod + " &7result"));
+            outcome.ifPresent(value -> sender.sendMessage(configManager.prefixed("&7Result: &f"
+                    + HolidayOutcome.from(value)
+                    .map(result -> configManager.holiday().outcome(result).displayName())
+                    .orElse(value))));
+            if (payouts.isEmpty()) {
+                boolean rolled = entries.stream().anyMatch(entry -> entry.action().equals("HOLIDAY_ROLLOVER"));
+                sender.sendMessage(configManager.prefixed(rolled
+                        ? "&7No player matched this period. Pool rolled over."
+                        : "&7No payout records. This period may have been canceled."));
+                return true;
+            }
+            for (LedgerEntry entry : payouts) {
+                sender.sendMessage(configManager.prefixed("&7Winner: &f" + entry.playerName()
+                        + " &7Amount: &f" + Text.money(entry.amount())));
+            }
+            return true;
+        }
         List<Award> awards = storage.awards(type, historyPeriod);
         sender.sendMessage(configManager.prefixed("&e" + configManager.lottery(type).displayName()
                 + " &7period &f" + historyPeriod + " &7result"));
